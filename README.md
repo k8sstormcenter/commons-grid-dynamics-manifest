@@ -18,3 +18,4 @@ Source code: `k8sstormcenter/commons-grid-dynamics`.
 | `deploy-pinned.yaml` | the app, image pinned to commit `9ab1489587f7030ef70dbc3b67e170e8bd9f027f` |
 | `deploy-runtime.yaml` | the app with redis and postgres sidecars, reverse-proxied on 6379/5432 |
 | `deploy-privileged.yaml` | debug deployment with node log and docker socket access |
+| `deploy-iter1.yaml` | iteration 1: frontend (nginx) / backend (node API on 8000) / database (redis), tier labels, digest-pinned images, ClusterIP services |
