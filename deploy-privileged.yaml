@@ -1,0 +1,47 @@
+# Commons Grid Dynamics debug deployment (needs node logs and docker access)
+# kubectl apply -f deploy-privileged.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: commons-grid
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commons-grid-dynamics-debug
+  namespace: commons-grid
+  labels:
+    app: commons-grid-dynamics-debug
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commons-grid-dynamics-debug
+  template:
+    metadata:
+      labels:
+        app: commons-grid-dynamics-debug
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+        - name: web
+          image: ghcr.io/k8sstormcenter/commons-grid-dynamics:latest
+          imagePullPolicy: Always
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: hostlogs
+              mountPath: /host/var/log
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+      volumes:
+        - name: hostlogs
+          hostPath:
+            path: /var/log
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock

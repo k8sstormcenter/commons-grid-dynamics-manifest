@@ -1,5 +1,5 @@
 # Commons Grid Dynamics - deploy with: kubectl apply -f deploy.yaml
-# then open http://<node-ip>:30080
+# then: kubectl -n commons-grid get svc commons-grid-dynamics   (to see the NodePort)
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -41,4 +41,3 @@ spec:
   ports:
     - port: 80
       targetPort: 80
-      nodePort: 30080
