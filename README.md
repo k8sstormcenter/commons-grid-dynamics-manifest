@@ -19,3 +19,4 @@ Source code: `k8sstormcenter/commons-grid-dynamics`.
 | `deploy-runtime.yaml` | the app with redis and postgres sidecars, reverse-proxied on 6379/5432 |
 | `deploy-privileged.yaml` | debug deployment with node log and docker socket access |
 | `deploy-iter1.yaml` | iteration 1: frontend (nginx) / backend (node API on 8000) / database (redis), tier labels, digest-pinned images, ClusterIP services |
+| `deploy-iter2.yaml` | iteration 2: same three tiers with requests/limits, probes, non-root + read-only + drop ALL + RuntimeDefault, no SA token; nginx-unprivileged; no npm install at start; solvers, literature and UI state behind the API |
