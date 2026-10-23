@@ -20,3 +20,4 @@ Source code: `k8sstormcenter/commons-grid-dynamics`.
 | `deploy-privileged.yaml` | debug deployment with node log and docker socket access |
 | `deploy-iter1.yaml` | iteration 1: frontend (nginx) / backend (node API on 8000) / database (redis), tier labels, digest-pinned images, ClusterIP services |
 | `deploy-iter2.yaml` | iteration 2: same three tiers with requests/limits, probes, non-root + read-only + drop ALL + RuntimeDefault, no SA token; nginx-unprivileged; no npm install at start; solvers, literature and UI state behind the API |
+| `deploy-iter3.yaml` | iteration 3: bearer-token auth on the API (ZITADEL JWKS), PKCE login in the shell, metrics ports + exporters + PodMonitor, tcp-only probes, fsGroup/seLinuxOptions |
