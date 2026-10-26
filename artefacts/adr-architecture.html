@@ -1,0 +1,218 @@
+<title>ADR Compliance Loop on edge4</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f2f4f7; --panel:#ffffff; --ink:#172029; --muted:#5b6672; --line:#cfd6de;
+  --flow:#0d6e7b; --flow-soft:#d9eef1; --install:#5d4a9c; --install-soft:#e9e4f6;
+  --bad:#b3261e; --bad-soft:#f8e1df; --good:#2a6f3a; --good-soft:#dff0e2; --warn:#8a5a00; --warn-soft:#f5ead2;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0f141a; --panel:#171e26; --ink:#e6ebf0; --muted:#98a4b1; --line:#2c3743;
+  --flow:#4fb7c4; --flow-soft:#12333a; --install:#a996e6; --install-soft:#27213c;
+  --bad:#f08a82; --bad-soft:#3a1c1a; --good:#7fcf92; --good-soft:#15301c; --warn:#e0b25c; --warn-soft:#352a12;
+}}
+:root[data-theme="dark"]{
+  --bg:#0f141a; --panel:#171e26; --ink:#e6ebf0; --muted:#98a4b1; --line:#2c3743;
+  --flow:#4fb7c4; --flow-soft:#12333a; --install:#a996e6; --install-soft:#27213c;
+  --bad:#f08a82; --bad-soft:#3a1c1a; --good:#7fcf92; --good-soft:#15301c; --warn:#e0b25c; --warn-soft:#352a12;
+}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;margin:0;padding:32px 28px 56px}
+main{max-width:1180px;margin:0 auto;display:grid;gap:28px}
+h1{font-size:26px;font-weight:600;margin:0 0 4px;text-wrap:balance}
+h2{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 12px}
+p{margin:0;max-width:68ch;color:var(--muted)}
+code,.mono{font-family:var(--mono);font-size:12.5px}
+.head{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;flex-wrap:wrap}
+.stamp{font-family:var(--mono);font-size:12px;color:var(--muted);text-align:right}
+.stamp b{color:var(--ink);font-weight:500}
+section{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:18px 20px}
+.lanes{display:grid;gap:14px}
+.lane{display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:start}
+.lane-label{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding-top:10px}
+.lane-label small{display:block;font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);margin-top:2px}
+.flow{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding-bottom:4px}
+.node{flex:1 1 150px;min-width:150px;border:1px solid var(--line);border-radius:5px;padding:10px 12px;background:var(--panel);position:relative}
+.node h3{font-size:13px;font-weight:600;margin:0 0 4px}
+.node .what{color:var(--muted);font-size:12.5px}
+.node .how{font-family:var(--mono);font-size:11.5px;margin-top:6px;color:var(--ink);word-break:break-word}
+.node.flow-n{border-left:3px solid var(--flow)}
+.node.install-n{border-left:3px solid var(--install)}
+.node.judge-n{border-left:3px solid var(--warn)}
+.arrow{flex:0 0 26px;display:flex;align-items:center;justify-content:center;color:var(--flow);font-size:18px}
+.arrow.v{height:22px;flex:none;width:100%;justify-content:flex-start;padding-left:60px;color:var(--muted)}
+.branch{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tag{display:inline-block;font-family:var(--mono);font-size:11px;padding:1px 6px;border-radius:3px;margin-right:4px}
+.tag.flow{background:var(--flow-soft);color:var(--flow)}
+.tag.install{background:var(--install-soft);color:var(--install)}
+.tag.bad{background:var(--bad-soft);color:var(--bad)}
+.tag.good{background:var(--good-soft);color:var(--good)}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.card{border:1px solid var(--line);border-radius:5px;padding:12px 14px}
+.card h3{font-size:13px;margin:0 0 6px;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.card ul{margin:0;padding-left:16px;color:var(--muted);font-size:12.5px}
+.card li code{color:var(--ink)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:6px 10px;border-bottom:1px solid var(--line)}
+td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+td.num{font-variant-numeric:tabular-nums;text-align:right}
+.wrap{overflow-x:auto}
+.pill{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:500;padding:2px 8px;border-radius:999px}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.good{background:var(--good-soft);color:var(--good)}
+.foot{color:var(--muted);font-size:12.5px;display:grid;gap:4px}
+@media (max-width:760px){.lane{grid-template-columns:1fr}.branch{grid-template-columns:1fr}}
+</style>
+
+<main>
+<div class="head">
+  <div>
+    <h1>ADR Compliance Loop on edge4</h1>
+    <p>Architecture decisions become profiles and admission policy; every pod is governed from birth; runtime evidence lands in ClickHouse; one evaluator turns it into a KPI for the Pixie UI and into MCP advice for the coder's agent — which rewrites the app until the KPI goes green.</p>
+  </div>
+  <div class="stamp">cluster <b>edge4_79f499d2</b> · k3s v1.36.4<br>install <b>soc skaffold</b> · kubescape-operator <b>1.41.0-duckling90</b><br>runs <b>vibe-app</b> 23:36Z · <b>commons-grid</b> iter 0→4 (14/15, rest platform)<br>MCP <b>adr_mcp.py</b> (real, stdio) · 15 ADRs</div>
+</div>
+
+<section>
+  <h2>Runtime loop</h2>
+  <div class="lanes">
+
+    <div class="lane">
+      <div class="lane-label">Decide<small>platform team, once</small></div>
+      <div class="flow">
+        <div class="node flow-n"><h3>15 ADRs</h3><div class="what">Each carries a <em>Verified by</em> clause: a rule, a control, an admission check, a live probe or a Pixie table. 0008–0015 proposed against the vibe fixture.</div><div class="how">adr/0001…0015 · bob PR #233 (public) · commits 2f55503 · b1c1eba · 1c81dc6 awaiting push</div></div>
+        <div class="arrow">→</div>
+        <div class="node flow-n"><h3>Tier SBoBs</h3><div class="what">One ContainerProfile per tier — the ADR as an allowlist. Authored by bobctl only.</div><div class="how">sbob-library/tier-{frontend,backend,middleware,database,unclassified}</div></div>
+        <div class="arrow">→</div>
+        <div class="node flow-n"><h3>Kyverno policies</h3><div class="what">ADR-0005 as admission: classify by image, then port; clone the profiles into every namespace.</div><div class="how">assign-workload-tier (mutate) · clone-tier-sbobs (generate)</div></div>
+      </div>
+    </div>
+
+    <div class="lane">
+      <div class="lane-label">Admit &amp; govern<small>per pod, automatic</small></div>
+      <div class="flow">
+        <div class="node flow-n"><h3>New (rogue) pod</h3><div class="what">Citizen coder applies plain YAML. No labels needed.</div><div class="how">app.yaml → ns vibe-app · deploy.yaml → ns commons-grid</div></div>
+        <div class="arrow">→</div>
+        <div class="node flow-n"><h3>Kyverno webhook</h3><div class="what">Stamps <code>app.kubernetes.io/tier</code> and <code>kubescape.io/user-defined-profile=tier-&lt;t&gt;</code>; profile already cloned into the namespace.</div><div class="how">kyverno 3.9.2 · unmatched → tier-unclassified (quarantine)</div></div>
+        <div class="arrow">→</div>
+        <div class="node flow-n"><h3>node-agent binds</h3><div class="what">Adopts the user-authored profile as authoritative base; rules R0001–R1032 evaluate against it from first syscall.</div><div class="how">duckling rogue105 · 32 rules bound · R1018 flags unsigned profile</div></div>
+      </div>
+    </div>
+
+    <div class="lane">
+      <div class="lane-label">Detect &amp; store<small>direct path</small></div>
+      <div class="flow">
+        <div class="node flow-n"><h3>Rule hit</h3><div class="what">R0011/R0012 egress+ingress, R0004 caps, R0001 exec, R0006 token…</div><div class="how">node-agent :50405 (JWT keypair, keygen Job)</div></div>
+        <div class="arrow">→</div>
+        <div class="node flow-n"><h3>dx-daemon</h3><div class="what">pemdirect client; forwards alerts, correlates evidence (forest, wire, dc_snoop) per anomaly.</div><div class="how">0.6.0-shadow-rc114 · DaemonSet honey</div></div>
+        <div class="arrow">→</div>
+        <div class="node flow-n"><h3>adaptive-export</h3><div class="what">Control surface :9100, writes rows; also drives Pixie tracepoints.</div><div class="how">0.16.52-93bb040 · DaemonSet pl</div></div>
+        <div class="arrow">→</div>
+        <div class="node flow-n"><h3>ClickHouse</h3><div class="what">The evidence of record. Rule rows carry pod, tier label, profile, image digest, process, peer; Pixie rows carry every HTTP/pgsql request with <code>encrypted</code>, path, status.</div><div class="how">forensic_db.kubescape_logs · http_events · pgsql_events</div></div>
+      </div>
+    </div>
+
+    <div class="lane">
+      <div class="lane-label">Judge &amp; advise<small>same evaluator, two outputs</small></div>
+      <div>
+        <div class="flow">
+          <div class="node judge-n"><h3>adr_kpi.py</h3><div class="what">review.py's ADR map, corroboration and liveness filter — fed from ClickHouse; plus <code>adr_arch</code> (what the pod serves vs its tier) and <code>adr_checks</code> (probes, pins, netpol, wire).</div><div class="how">~/adr-exp/kpi/{adr_kpi,adr_arch,adr_checks}.py · ADR_RIG=bob/example/3tier-baseline</div></div>
+          <div class="arrow">→</div>
+          <div class="node judge-n"><h3>kpi.json</h3><div class="what">Per ADR: VIOLATED / COMPLIANT / NOT_OBSERVED, violation count, evidence refs (uniqueID, profile, image, row count).</div><div class="how">schema adr-kpi/v1 → new Pixie UI</div></div>
+          <div class="arrow">→</div>
+          <div class="node judge-n"><h3>adr_mcp.py</h3><div class="what">MCP tools for the coder's agent: compliance, violations with fix, explain ADR, recheck after redeploy.</div><div class="how">stdio JSON-RPC 2025-06-18 · adr_compliance · adr_violations · adr_explain · adr_architecture · adr_recheck</div></div>
+          <div class="arrow">→</div>
+          <div class="node judge-n"><h3>Vibe-coder agent</h3><div class="what">A peer Claude session plays the citizen coder's AI: reads the MCP verdict, rewrites app + manifest, pushes a variant; we apply, scan, re-judge. Four rounds.</div><div class="how">bridge session (circular-economy simulator) · k8sstormcenter/commons-grid-dynamics{,-manifest}</div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<section>
+  <h2>Vibe-coder loop — commons-grid-dynamics, four iterations</h2>
+  <p style="margin-bottom:12px">Fixture: one <code>nginx</code>-shaped pod serving a 195 KB <code>index.html</code> that <em>is</em> the product (solvers, Monte-Carlo, pricing tables, localStorage). Kyverno guessed <code>tier=frontend</code> from port 80. Each round: MCP verdict → peer rewrites → apply → <code>scan.sh</code> + evaluator → next verdict.</p>
+  <div class="wrap"><table>
+    <thead><tr><th>#</th><th>State of the app</th><th>Target ADRs</th><th>What the MCP must see to pass</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0</td><td>monolith: nginx + 178 KB inline JS, <code>:latest</code>, NodePort, no envelope</td><td>—</td><td>baseline: 6 of 8 new ADRs VIOLATED, 0010/0012 NOT_OBSERVED (no backend to probe)</td><td><span class="pill bad">judged</span></td></tr>
+      <tr><td class="num">1</td><td>split: frontend shell · backend API (solvers) · database (PRESETS/PACKAGES/ABUSES); tiers declared; digests pinned; ClusterIP</td><td class="mono">0008 0009 0014</td><td>0009 ✓ 0014 ✓ 0001 ✓ (web→api→redis is the prescribed topology). 0008 still VIOLATED: the shell loads <code>ode.js/lit.js/ui.js</code> — 139 KB, rk4/dp45/jacobian — verdict <code>COMPUTATION_IN_PRESENTATION_TIER</code>. New: 0004 (api runs <code>npm install</code> at start → registry.npmjs.org), 0010 (API answers 200 without a token)</td><td><span class="pill bad">judged · 9 V / 5 C / 1 NO</span></td></tr>
+      <tr><td class="num">2</td><td>envelope: resources, probes, securityContext, no SA token; <code>nginx-unprivileged</code> :8080, node uid 1000 speaking RESP over <code>net</code> (no npm at start), redis uid 999; solvers behind <code>POST /api/ode/*</code>, state via <code>/api/state</code></td><td class="mono">0013 0006 0003 + finish 0008, fix 0004</td><td>0008 ✓ (shell defines no solver — first verdict was a false positive: route <em>names</em> counted as solvers; evaluator now counts <em>definitions</em>), 0003 ✓, 0001/0002/0009/0014 hold. Left: 0010 (3 GET routes answer 200 without a token), 0012, 0015, 0011 (16 plaintext web→api calls — the right shape for round 4), 0013 (C-0211 wants fsGroup/seLinuxOptions), 0004/0006 both from the redis <code>exec: redis-cli ping</code> probe (runc enters with CAP_SYS_ADMIN). Discounted by the evaluator: rollover traffic from the departed api pod, kubelet probes on declared paths, the tracer's <code>node --version</code> (parent=pem)</td><td><span class="pill bad">judged · 8 V / 7 C / 0 NO</span></td></tr>
+      <tr><td class="num">3</td><td>authN via platform IdP (ZITADEL, bob PR #220) + metrics on a separate port + tcpSocket probes. Platform side done by <code>idp-client.sh</code> (idempotent): project <span class="mono">396322531272819068</span>, PKCE web app for the shell, machine user → Secret <code>commons-grid/idp-client</code> the evaluator mints from</td><td class="mono">0010 0012 + 0004 0006 0013</td><td>0010 ✓ (6 routes: no token → 401 <code>WWW-Authenticate: Bearer</code>, garbage → 401, platform JWT aud=project → 200; RS256 against the IdP JWKS with node's built-in crypto), 0012 ✓ (<code>/metrics</code> 200 on 9100/9113/9121, 404 on the app ports), 0004/0006 ✓ (tcpSocket probes, no exec), 0013 ✓ (C-0211 passes). Left: 0011 (10 plaintext rows — web→api:8000 and client→web:8080, exactly the round-4 shape), 0015 (0 NetworkPolicy). Platform-owned: 0005 tier-frontend profile lacks the web→api edge; kubelet probe on the exporter port 9121 (R0012 on db) discounted. Found on apply: ConfigMaps ordered after the Deployments → pods ran stale code until restarted; redis client never reconnects → <code>/api/presets</code> hung after the db rollover while <code>/api/health</code> stayed 200</td><td><span class="pill bad">judged · 2 V / 12 C / 1 platform</span></td></tr>
+      <tr><td class="num">4</td><td>default-deny NetworkPolicy (web←traefik:8443, web→api:8000, api→db:6379, api→zitadel:8080, monitoring→metrics ports, all→DNS) + TLS between tiers from the platform CA: ClusterIssuer <code>platform-ca</code> (cert-manager, installed by <code>platform-ca.yaml</code>), one <code>Certificate</code> per workload (Ready in &lt;20 s); nginx 8443 + <code>proxy_ssl_verify on</code>, node <code>https</code>/<code>tls.connect</code>, redis <code>--tls-port 6379</code>; ConfigMap checksum annotation; reconnecting redis client with 3 s timeouts → 503 and <code>/api/ready</code></td><td class="mono">0015 0011</td><td>0015 ✓ (4 NetworkPolicies, enforced: api:8000 unreachable from the evaluator's node — the evaluator now probes the backend <em>through the frontend</em>, the way the platform ingress does), 0011 ✓ (24 web rows <code>encrypted=1</code>, 0 plaintext application rows; caveat: node/redis TLS is opaque to the tracer, judged by absence of plaintext where round 3 had it). Rollout happened once, on apply (checksum annotation). Left: 0005 only — the tier-frontend SBoB lacks the web→api edge (bobctl, platform-owned)</td><td><span class="pill good">judged · 0 V (app) / 14 C / 1 platform</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Proposed ADRs 0008–0015 — and what our stack observes for each</h2>
+  <div class="wrap"><table>
+    <thead><tr><th>ADR</th><th>Decision</th><th>Observed by</th><th>commons-grid iter 0</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">0008</td><td>presentation tier serves presentation only</td><td>content probe (inline bytes, functions, solver/dataset/money/state markers) + zero egress + R0002 on custom content</td><td><span class="pill bad">VIOLATED</span> 178 KB, 76 fn, 3 datasets, 187 € refs</td></tr>
+      <tr><td class="mono">0009</td><td>a tier is declared, never guessed</td><td>pod label vs <code>last-applied-configuration</code>; kyverno regexes read from the rig</td><td><span class="pill bad">VIOLATED</span> port fallback</td></tr>
+      <tr><td class="mono">0010</td><td>backend requests authenticated by the platform IdP</td><td>live probe without/with garbage token; OIDC markers in shell; later http_events 200s</td><td><span class="pill" style="background:var(--line);color:var(--muted)">NOT_OBSERVED</span> no backend</td></tr>
+      <tr><td class="mono">0011</td><td>no plaintext on the wire</td><td>Pixie <code>http_events</code>/<code>pgsql_events</code> with <code>encrypted=0</code> (loopback + evaluator excluded); Service/Ingress shape</td><td><span class="pill bad">VIOLATED</span> GET / :80 plaintext</td></tr>
+      <tr><td class="mono">0012</td><td>metrics on a dedicated port, scraped by the platform only</td><td>probe <code>/metrics</code> on app port; containerPort named <code>metrics</code>; scraper source in http_events</td><td><span class="pill" style="background:var(--line);color:var(--muted)">NOT_OBSERVED</span> no backend</td></tr>
+      <tr><td class="mono">0013</td><td>workloads declare their envelope</td><td>kubescape AllControls grouped by fix (review.py CONTROL_MAP extended)</td><td><span class="pill bad">VIOLATED</span> 12 fixes</td></tr>
+      <tr><td class="mono">0014</td><td>images pinned by digest, signed</td><td>image string + pull policy; running <code>imageID</code> digest; C-0236/0237</td><td><span class="pill bad">VIOLATED</span> :latest, Always</td></tr>
+      <tr><td class="mono">0015</td><td>ingress is the platform's; default-deny netpol</td><td>Service type, hostPort/hostNetwork, netpol count; C-0030/0260/0044</td><td><span class="pill bad">VIOLATED</span> 0 NetworkPolicy</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Install plane — independent, idempotent deploys</h2>
+  <div class="grid4">
+    <div class="card"><h3>soc skaffold <span class="tag install">installer of record</span></h3>
+      <ul><li><code>k8sstormcenter/soc</code> <code>skaffold run -m soc-kubescape</code>: renders the published <code>kubescape-operator-1.41.0-duckling90</code> chart (k8sstormcenter/helm-charts releases) with the soc tree values, applies server-side</li>
+      <li>kubescape-operator, node-agent (rogue105), storage (rebase fix6), default-rules + rule-alert-binding; chart version alone pins the images</li>
+      <li>no per-cluster values, no installer scripts; re-run is a no-op (Jobs create-if-absent)</li>
+      <li>ClickHouse (Altinity CHI/CHK + schema), AE, dx-daemon from the other soc modules</li></ul></div>
+    <div class="card"><h3>Pixie <span class="tag install">skaffold</span></h3>
+      <ul><li>vizier / PEM / cloud-connector, cluster <code>edge4_79f499d2</code> → <code>work.soc.k8sstormcenter.com</code></li>
+      <li>AE and dx read <code>pl-cluster-secrets</code>, <code>service-tls-certs</code> from it</li>
+      <li>overlay-deployable; never mutate tracepoints by hand</li></ul></div>
+    <div class="card"><h3>Kyverno + 3tier rig <span class="tag install">demo.sh</span></h3>
+      <ul><li>kyverno 3.9.2 (ClusterPolicy, Audit) — CEL migration pending</li>
+      <li>SBoBs → <code>sbob-library</code>; clone + assign policies</li>
+      <li><code>demo.sh deploy | attack | reset</code> scoped to the app namespace</li></ul></div>
+    <div class="card"><h3>ZITADEL (platform IdP) <span class="tag install">distro.sh sbob</span></h3>
+      <ul><li>bob PR #220 <code>example/zitadel</code>: chart 10.0.6, ns <code>zitadel</code>, <code>zitadel:8080</code> + <code>zitadel-login:3000</code> + postgres</li>
+      <li>9 SBoBs bound from container start, 0 benign FPs</li>
+      <li>ADR-0010 issuer; TLS off on edge4 (ADR-0011 sharp edge)</li>
+      <li>Found on install: the rig's tier policy overwrote the IdP's own bindings (→ 12k false R0002 in 40 min). Fixed on the branch: labels are add-if-absent (<code>+()</code>), a declared profile wins — ADR-0009 applied to the platform itself.</li></ul></div>
+    <div class="card"><h3>dx-ktls <span class="tag install">separate</span></h3>
+      <ul><li>kTLS/Go-TLS tap (patched eCapture), not in the chart</li>
+      <li>pin owned by AEDX; data held ~1h then deleted</li></ul></div>
+  </div>
+</section>
+
+<section>
+  <h2>Live verdict — attack run 23:36Z, 104 rows from vibe-app, 5/5 pods governed</h2>
+  <div class="wrap"><table>
+    <thead><tr><th>ADR</th><th>Decision</th><th>Status</th><th>Observed (ClickHouse)</th><th class="num">Rows</th><th>Fix handed to the agent</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">ADR-0001</td><td>presentation never reaches data tier</td><td><span class="pill bad">VIOLATED</span></td><td>frontend/web → 10.42.2.65:5432 <span class="tag flow">R0011</span> corroborated by db/postgres ingress <span class="tag flow">R0012</span></td><td class="num">6+6</td><td>route through the service labelled tier=backend</td></tr>
+      <tr><td class="mono">ADR-0002</td><td>data tier initiates no egress</td><td><span class="pill bad">VIOLATED</span></td><td>db/postgres → 1.1.1.1:443 <span class="tag flow">R0011</span> profile tier-database</td><td class="num">3</td><td>remove the outbound call; egress belongs in a tier=backend sidecar/job</td></tr>
+      <tr><td class="mono">ADR-0003</td><td>no cluster credentials in presentation tier</td><td><span class="pill good">COMPLIANT</span></td><td>no R0006/R0010 while watched; static C-0034 needs a scan</td><td class="num">0</td><td>—</td></tr>
+      <tr><td class="mono">ADR-0004</td><td>images immutable at runtime</td><td><span class="pill bad">VIOLATED</span></td><td>frontend/web launched <code>bash</code> <span class="tag flow">R0001</span></td><td class="num">1</td><td>process is not part of the image's declared behaviour</td></tr>
+      <tr><td class="mono">ADR-0005</td><td>every workload declares its tier</td><td><span class="pill good">COMPLIANT</span></td><td>5/5 pods labelled + bound; worker quarantined as tier-unclassified</td><td class="num">—</td><td>—</td></tr>
+      <tr><td class="mono">ADR-0006</td><td>workloads run as non-root</td><td><span class="pill bad">VIOLATED</span></td><td>CAP_SYS_ADMIN used in frontend/web and db/postgres <span class="tag flow">R0004</span></td><td class="num">5+6</td><td>switch to rootless image variants — an image choice, not a profile gap</td></tr>
+      <tr><td class="mono">ADR-0007</td><td>no profile wildcards above protected paths</td><td><span class="pill good">COMPLIANT</span></td><td>5 stored profiles read back, 0 wildcard opens</td><td class="num">—</td><td>—</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="foot">
+  <h2>Boundaries</h2>
+  <div>Evidence is the <code>kubescape_logs</code> base table, never the <code>dx_alerts</code> view (it drops platform namespaces). Findings are filtered to pods that exist now and to rows younger than the pod — so a fix plus <code>adr_recheck</code> is meaningful.</div>
+  <div>The dx proof KPI (<code>dx_kpi_proof</code>) still runs the bundled redis suite; an ADR AttackSuite is the next step for that surface.</div>
+  <div>The MCP is real: <code>adr_mcp.py</code> speaks MCP over stdio and is what the peer's verdicts are generated with. The vibe-coder is a peer Claude session, not a scripted stub; its pushes wait on croedig's approval. ADR commit 2f55503 (branch adr-vibe on PR #233's head) is local to edge4 — remote is <code>no_push</code> by design; patch handed to croedig.</div>
+  <div>bob is public, dx is private. SBoBs are authored by bobctl; node-agent fixes go to kubescape. Chart tip 62028cbbad3b is not to be rolled.</div>
+</section>
+</main>

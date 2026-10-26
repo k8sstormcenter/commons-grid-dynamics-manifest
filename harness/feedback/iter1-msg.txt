@@ -1,0 +1,67 @@
+ITERATION 1 — MCP adr-compliance feedback for ns commons-grid (you are the vibe-coder; rewrite the manifest/app, push a variant, tell me the ref)
+
+adr_architecture verdict: SINGLE_TIER_APPLICATION_IN_PRESENTATION_TIER
+reasons:
+  - tier=frontend came from the port fallback on port [80]: the image ghcr.io/k8sstormcenter/commons-grid-dynamics:latest matched no known component, so the tier is a guess
+  - the served page carries 178 KB of inline code, 76 functions, including numerical solvers/simulation (rng, gauss, poisson, gamma, beta, lognormal, weighted, merge, normMix, genWorld, newHuman, simulate)
+  - business data is embedded in the page: datasets ['PRESETS', 'ABUSES', 'PACKAGES'], 187 money/pricing references
+  - no backend exists: zero fetch/XHR in the code, zero egress events from the pod, and the tier-frontend profile declares no egress
+  - application state is kept in the browser (localStorage)
+  - no authentication anywhere: no auth markers in the code, no Authorization handling
+  - nginx read files the frontend baseline does not declare (R0002): ['/usr/share/nginx/html/index.html'] — custom content in a stock-server image
+
+KPI (15 ADRs): 0001=COMP, 0002=COMP, 0003=VIOL, 0004=COMP, 0005=COMP, 0006=VIOL, 0007=COMP, 0008=VIOL, 0009=VIOL, 0010=NOT_, 0011=VIOL, 0012=NOT_, 0013=VIOL, 0014=VIOL, 0015=VIOL
+
+adr_violations (23), by ADR:
+  ADR-0003  Automatic mapping of service account
+      observed: C-0034, C-0190, C-0261 failed on 1 resource(s): commons-grid-dynamics
+      fix: set spec.template.spec.automountServiceAccountToken = false
+  ADR-0006  Allow privilege escalation
+      observed: C-0016, C-0211 failed on 1 resource(s): commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].securityContext.allowPrivilegeEscalation = false
+  ADR-0006  Apply Security Context to Your Pods and Containers
+      observed: C-0017, C-0211 failed on 1 resource(s): commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].securityContext.readOnlyRootFilesystem = true
+  ADR-0008  the presentation tier serves the whole application
+      observed: 178 KB inline JS, 76 functions, solvers ['rng', 'gauss', 'poisson', 'gamma'], datasets ['PRESETS', 'ABUSES', 'PACKAGES'], 187 pricing refs; 0 backend calls; 0 e
+      fix: split: nginx shell (tier=frontend) -> API (tier=backend, 8000/8080) -> store (tier=database); move the datasets to the store; the shell's fetch() to the API is the egress ADR-0001 expects
+  ADR-0009  tier was guessed from the container port
+      observed: image ghcr.io/k8sstormcenter/commons-grid-dynamics:latest matched no known component; tier=frontend assigned by port fallback ([80]); manifest declares no app.k
+      fix: declare app.kubernetes.io/tier in the pod template (frontend|backend|database); platform: remove the containerPort fallback from kyverno/02-label-tiers.yaml
+  ADR-0011  plaintext on the wire
+      observed: http GET / -> commons-grid-dynamics-566dd5dbdb-tp466:80 from 10.42.2.156 (4 req, encrypted=0, status 200)
+      fix: serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only
+  ADR-0013  Apply Security Context to Your Pods and Containers
+      observed: C-0211 failed on 1 resource(s): commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].securityContext.capabilities.drop[*] = NET_RAW
+  ADR-0013  Ensure CPU limits are set
+      observed: C-0009, C-0050, C-0270 failed on 1 resource(s): commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].resources.limits.cpu = <choose a value>
+  ADR-0013  Ensure memory limits are set
+      observed: C-0004, C-0009, C-0271 failed on 1 resource(s): commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].resources.limits.memory = <choose a value>
+  ADR-0013  Ensure CPU requests are set
+      observed: C-0050, C-0268 failed on 1 resource(s): commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].resources.requests.cpu = <choose a value>
+  ADR-0013  Ensure memory requests are set
+      observed: C-0004, C-0269 failed on 1 resource(s): commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].resources.requests.memory = <choose a value>
+  ADR-0013  Ensure that the seccomp profile is set to docker/default in your pod definitions
+      observed: C-0210 failed on 1 resource(s): commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].securityContext.seccompProfile.type = RuntimeDefault
+  ADR-0013  Configured liveness probe
+      observed: C-0056 failed on 1 resource(s): commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].livenessProbe = <choose a value>
+  ADR-0013  Configured readiness probe
+      observed: C-0018 failed on 1 resource(s): commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].readinessProbe = <choose a value>
+  ADR-0014  image is not pinned by digest
+      observed: web: ghcr.io/k8sstormcenter/commons-grid-dynamics:latest (tag :latest (mutable)), imagePullPolicy=Always
+      fix: image: ghcr.io/k8sstormcenter/commons-grid-dynamics:latest@sha256:<digest>; imagePullPolicy: IfNotPresent; sign with cosign
+  ADR-0015  no NetworkPolicy in the namespace
+      observed: 1 running pods, 0 NetworkPolicy objects
+      fix: default-deny ingress+egress; allow ingress-controller->frontend, frontend->backend, backend->database, backend->IdP, monitoring->metrics, all->DNS
+
+TARGET FOR THIS ITERATION (ADR-0008/0009/0014): split into 3 workloads with DECLARED app.kubernetes.io/tier labels — frontend (nginx shell only, no engine/datasets), backend (python/node/go API carrying the solvers, port 8000/8080), database (postgres or redis image holding PRESETS/PACKAGES/ABUSES). Pin every image by digest, imagePullPolicy IfNotPresent. ClusterIP Services only (no nodePort). Keep ns commons-grid. The shell must actually fetch() the backend so the egress is observable.
+Later iterations: (2) envelope: resources/probes/securityContext/no SA token (ADR-0013/0006/0003); (3) authN: bearer tokens from the platform IdP ZITADEL (bob PR #220, zitadel.zitadel.svc:8080, JWKS /oauth/v2/keys) → 401 without token, metrics on a separate port named metrics (ADR-0010/0012); (4) NetworkPolicy default-deny + TLS between tiers (ADR-0015/0011).
+Push to commons-grid-dynamics-manifest as deploy-iter1.yaml (raw URL) when croedig has approved your push; I apply, scan, re-evaluate via the MCP and send iteration 2. Terse replies please.
