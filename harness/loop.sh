@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # One iteration of the fix-and-verify loop:
-#   ./harness/loop.sh <N> [namespace]
-# applies deploy-iter<N>.yaml, records the time, scans, evaluates runtime + static evidence
-# into artefacts/kpi-<ns>-iter<N>.json and asks the MCP what the coding agent would be told.
+#   ./harness/loop.sh <N> [namespace] [manifest]       default: commons-grid, deploy-iter<N>.yaml
+# records the time, applies the manifest, scans, evaluates runtime + static evidence into
+# artefacts/kpi-<ns>-iter<N>.json and asks the MCP what the coding agent would be told.
 # Needs ADR_CH (ClickHouse HTTP DSN), kubectl, kubescape, python3 + PyYAML.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-N=${1:?iteration}; NS=${2:-commons-grid}
+N=${1:?iteration}; NS=${2:-commons-grid}; MANIFEST=${3:-deploy-iter$N.yaml}
 : "${ADR_CH:?ADR_CH=http://<user>:<password>@<clickhouse>:8123}"
 SCAN_DIR=${ADR_SCAN_DIR:-/tmp}
 
 kubectl -n honey rollout status ds/node-agent --timeout=300s >/dev/null   # never deploy into a rolling sensor
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 SINCE=$(date -u +%s); echo "$SINCE" > "artefacts/iter$N-since"
-kubectl -n "$NS" apply -f "deploy-iter$N.yaml"
+kubectl -n "$NS" apply -f "$MANIFEST"
 kubectl -n "$NS" rollout status deploy --timeout=300s || true
 kubectl -n "$NS" get pods -o custom-columns='POD:.metadata.name,TIER:.metadata.labels.app\.kubernetes\.io/tier,PROFILE:.metadata.labels.kubescape\.io/user-defined-profile,STATUS:.status.phase'
 
