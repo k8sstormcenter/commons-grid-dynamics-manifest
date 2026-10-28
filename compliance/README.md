@@ -10,7 +10,7 @@ Environment
 
 | var | meaning |
 |---|---|
-| `ADR_CH` | ClickHouse HTTP DSN, `http://<user>:<password>@<host>:8123` (required) |
+| `ADR_CH` | ClickHouse HTTP DSN, `http://ingest_writer:changeme-ingest@<host>:8123` (required) |
 | `ADR_RIG` | directory holding `adr/` (default: `..`) |
 | `ADR_SCAN_DIR` | where `scan.sh` writes `AllControls-<ns>.json` (default `/tmp`) |
 
@@ -19,7 +19,7 @@ Register
 ```json
 {"mcpServers":{"adr":{"command":"python3",
   "args":["<checkout>/compliance/adr_mcp.py"],
-  "env":{"ADR_CH":"http://<user>:<password>@<clickhouse>:8123"}}}}
+  "env":{"ADR_CH":"http://ingest_writer:changeme-ingest@<clickhouse>:8123"}}}}
 ```
 
 Needs `kubectl` access to the target cluster (live pods, the `idp-client` secret for the

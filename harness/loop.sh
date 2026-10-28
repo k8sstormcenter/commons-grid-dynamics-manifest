@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 N=${1:?iteration}; NS=${2:-commons-grid}; MANIFEST=${3:-deploy-iter$N.yaml}
-: "${ADR_CH:?ADR_CH=http://<user>:<password>@<clickhouse>:8123}"
+: "${ADR_CH:?ADR_CH=http://ingest_writer:changeme-ingest@<clickhouse>:8123}"
 SCAN_DIR=${ADR_SCAN_DIR:-/tmp}
 
 kubectl -n honey rollout status ds/node-agent --timeout=300s >/dev/null   # never deploy into a rolling sensor

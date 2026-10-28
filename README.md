@@ -30,10 +30,10 @@ git clone -b demo https://github.com/k8sstormcenter/commons-grid-dynamics-manife
 The evaluator and the MCP read node-agent detections from the stack's ClickHouse. One variable:
 
 ```sh
-export ADR_CH="http://ingest_writer:<password>@$(kubectl -n clickhouse get pod -l clickhouse.altinity.com/chi=forensic-soc-db -o jsonpath='{.items[0].status.podIP}'):8123"
+export ADR_CH="http://ingest_writer:changeme-ingest@$(kubectl -n clickhouse get pod -l clickhouse.altinity.com/chi=forensic-soc-db -o jsonpath='{.items[0].status.podIP}'):8123"
 ```
 
-(`ingest_writer` is the stack's ingest user; its password is in the soc chart values.)
+(`ingest_writer` / `changeme-ingest` is the stack's ingest user as set in the soc chart values `clickhouse.ingest.user/password`; change it there if you changed it.)
 
 ### 2. Give your coding agent the MCP
 

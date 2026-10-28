@@ -17,7 +17,7 @@ import argparse, collections, datetime, importlib.util, json, os, re, subprocess
 import urllib.parse, urllib.request
 
 RIG = os.environ.get("ADR_RIG", os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-CH = os.environ["ADR_CH"]  # http://<user>:<password>@<clickhouse-host>:8123
+CH = os.environ["ADR_CH"]  # http://ingest_writer:changeme-ingest@<clickhouse-host>:8123
 TABLE = "forensic_db.kubescape_logs"
 PLATFORM_PARENTS = {"pem"}  # Pixie PEM
 EVALUATOR_IPS = set(subprocess.run(["hostname", "-I"], capture_output=True, text=True).stdout.split())

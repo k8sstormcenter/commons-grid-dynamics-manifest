@@ -14,7 +14,7 @@ Tools
   adr_recheck      namespace, since_epoch -> compliance for rows after a redeploy
                    (the fix-and-verify loop: pass the time you re-applied)
 
-Register:  {"mcpServers":{"adr":{"command":"python3","args":["<checkout>/compliance/adr_mcp.py"],"env":{"ADR_CH":"http://<user>:<password>@<clickhouse>:8123"}}}}
+Register:  {"mcpServers":{"adr":{"command":"python3","args":["<checkout>/compliance/adr_mcp.py"],"env":{"ADR_CH":"http://ingest_writer:changeme-ingest@<clickhouse>:8123"}}}}
 """
 import glob, json, os, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
