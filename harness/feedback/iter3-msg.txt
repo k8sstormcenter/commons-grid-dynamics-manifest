@@ -1,0 +1,58 @@
+ITERATION 3 — MCP adr-compliance feedback for ns commons-grid (deploy-iter2.yaml applied 02:14Z; 3 pods governed+watched; window 02:14Z→02:32Z)
+
+Progress since iteration 2: ADR-0008 COMPLIANT (shell defines no solver — the API-wrapper names were my false positive, fixed), ADR-0003 COMPLIANT, ADR-0001/0002/0009/0014 hold. The evaluator now discounts: rollover traffic from the departed api pod, kubelet probe traffic on declared probe paths, the tracer's `node --version` exec (owner=platform).
+Summary: 8 violated / 7 compliant / 0 not observed
+KPI: 0001=COMP(0), 0002=COMP(0), 0003=COMP(0), 0004=VIOL(1), 0005=VIOL(2), 0006=VIOL(1), 0007=COMP(0), 0008=COMP(0), 0009=COMP(0), 0010=VIOL(2), 0011=VIOL(16), 0012=VIOL(2), 0013=VIOL(3), 0014=COMP(0), 0015=VIOL(1)
+
+adr_architecture: all 3 pods CONSISTENT_WITH_TIER (matched_by image regex). frontend reason left: 'no authentication anywhere'.
+
+adr_violations (application-owned):
+  ADR-0004  a process ran that is not part of the image's declared behaviour
+      observed: Unexpected process launched: redis-cli with PID 3400853
+      cause: started by exec (kubelet exec probe or kubectl exec), parent containerd-shim
+      fix: if this is a probe: use tcpSocket/httpGet instead of exec; if it was kubectl exec: nothing to fix in the image
+  ADR-0006  the container used a Linux capability, i.e. it starts as root and drops
+      observed: Unexpected capability used: CAP_SYS_ADMIN in syscall read with PID 3400852
+      cause: kubelet exec probe (runc entering the container)
+      fix: the exec probe enters the container through runc, which uses CAP_SYS_ADMIN and reads /proc; use a tcpSocket or httpGet probe instead
+  ADR-0010  backend answers without a bearer token
+      observed: GET http://10.42.1.184:8000 without Authorization: /api/abuses->200, /api/constants->200, /api/literature->200; expected 401
+      fix: validate platform-IdP (Zitadel OIDC) bearer tokens on every route: issuer, audience, JWKS; 401 otherwise
+  ADR-0010  frontend calls the backend without authenticating
+      observed: 1 fetch/XHR call sites, 0 OIDC/bearer markers in served code
+      fix: authorization-code + PKCE against the platform IdP; send Authorization: Bearer on every API call
+  ADR-0011  plaintext on the wire
+      observed: http GET /api/presets -> commons-grid-api-f84dcb449-dtv2w:8000 from 10.42.0.241 (1 req, encrypted=0, status 200)
+      fix: serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only
+  ADR-0012  no dedicated metrics port
+      observed: containerPorts named [None]; none named metrics
+      fix: expose metrics on a second containerPort named metrics; add a ServiceMonitor/PodMonitor
+  ADR-0013  Apply Security Context to Your Pods and Containers
+      observed: C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.securityContext.fsGroupChangePolicy = Always
+  ADR-0013  Apply Security Context to Your Pods and Containers
+      observed: C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].securityContext.seLinuxOptions = <choose a value>
+  ADR-0013  Apply Security Context to Your Pods and Containers
+      observed: C-0211 failed on 2 resource(s): commons-grid-api, commons-grid-dynamics
+      fix: set spec.template.spec.securityContext.fsGroup = <choose a value>
+  ADR-0015  no NetworkPolicy in the namespace
+      observed: 3 running pods, 0 NetworkPolicy objects
+      fix: default-deny ingress+egress; allow ingress-controller->frontend, frontend->backend, backend->database, backend->IdP, monitoring->metrics, all->DNS
+
+platform-owned (not yours): ADR-0005 ×2 — tier-frontend/tier-database profiles lack the frontend->backend and backend->database edges (bobctl). Discounted: ADR-0001 redis ingress from 10.42.0.141 (departed iteration-1 api pod, rollover); ADR-0004 `node --version` (parent=pem, the tracer).
+
+TARGET FOR THIS ITERATION (ADR-0010 authN, ADR-0012 metrics, finish 0004/0006/0013):
+ 1. ADR-0010 — platform has provisioned the IdP side for you (ZITADEL, bob PR #220):
+      issuer            http://localhost:8080   (reach it in-cluster at http://zitadel.zitadel.svc:8080 with header Host: localhost:8080)
+      jwks_uri          http://localhost:8080/oauth/v2/keys  (same reach rule; RS256, cache by kid)
+      project id / aud  396322531272819068
+      shell client_id   396322583147970940   (OIDC web app, PKCE, authMethod NONE, redirect http://commons-grid-dynamics.commons-grid.svc/callback, access token type JWT)
+      test client       Secret commons-grid/idp-client {client_id, client_secret, issuer, token_endpoint} — a machine user, client_credentials, JWT. The evaluator mints a token from it and expects < 400; your pods never read it (ADR-0003: the shell holds no credential, the API holds no secret — it only verifies).
+    API: every /api/* route except /api/health → 401 without a valid bearer; verify RS256 signature against JWKS, iss == http://localhost:8080, aud contains the project id, exp. 401 (not 403, not 500) on garbage tokens. No npm install at runtime: verify with node's built-in crypto (createPublicKey from the JWK, verify RSA-SHA256) — same rule as iteration 2.
+    Shell: authorization-code + PKCE against issuer /oauth/v2/authorize with the client_id above, scope `openid urn:zitadel:iam:org:project:id:396322531272819068:aud`; keep the access token in memory (not localStorage); send Authorization: Bearer on every API.* call; on 401 redirect to login. The served JS must carry the auth markers (Authorization/Bearer/oauth) — that is what the content probe reads.
+ 2. ADR-0012 — second containerPort named `metrics` (api: 9100; frontend: nginx stub_status or an exporter on 9113) serving /metrics in Prometheus text format; /metrics on the app port → 404. Add a PodMonitor (monitoring.coreos.com/v1) selecting the pods on port `metrics`.
+ 3. ADR-0004/0006 — the redis readinessProbe `exec: redis-cli ping` enters the container through runc (CAP_SYS_ADMIN, /proc reads) and spawns redis-cli: tcpSocket on 6379 for both probes. No exec probes anywhere.
+ 4. ADR-0013 — C-0211 still wants pod-level securityContext {fsGroup: <the runAsUser>, fsGroupChangePolicy: Always, seLinuxOptions: {level: "s0:c123,c456"}} on all 3 workloads (kubescape's control, passed through).
+Later: (4) NetworkPolicy default-deny + TLS between tiers (ADR-0015/0011) — the 0011 rows are now exactly the frontend->api plaintext calls, the right shape for iteration 4.
+Push as deploy-iter3.yaml when croedig has approved; I apply, scan, re-evaluate. Terse replies.

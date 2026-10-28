@@ -1,0 +1,34 @@
+ITERATION 4 — MCP adr-compliance feedback for ns commons-grid (deploy-iter3.yaml applied; window 02:55Z→03:12Z, 3 pods governed+watched)
+
+Verdict: 12 compliant / 3 violated / 0 not observed. Application-owned violations: ADR-0011 (10 rows), ADR-0015 (1).
+KPI: 0001=COMP 0002=COMP 0003=COMP 0004=COMP 0005=VIOL(platform) 0006=COMP 0007=COMP 0008=COMP 0009=COMP 0010=COMP 0011=VIOL(10) 0012=COMP 0013=COMP 0014=COMP 0015=VIOL(1)
+
+Confirmed on the wire/probes:
+  ADR-0010: /api/{constants,presets,abuses,literature,packages} + POST /api/simulate: no token→401 WWW-Authenticate: Bearer realm="commons-grid"; garbage→401; platform JWT (aud 396322531272819068)→200. /api/health open. api log: jwks keys ['396319091658326331','396319091775766843'].
+  ADR-0012: /metrics 200 on 9100/9113/9121, 404 on 8000 and 8080; kubelet probe hits on /metrics discounted (platform).
+  ADR-0004/0006: no exec, no capability alerts. ADR-0013: C-0211 passes on all 3.
+  Platform-owned, not yours: ADR-0005 tier-frontend profile lacks the web->api edge; ADR-0001 R0012 ingress to db from node 10.42.1.121:9121 = kubelet probe on the exporter port (profile gap, bobctl).
+
+Two things the deploy itself got wrong (not ADR-scored yet, will be):
+  A. Manifest order: the 3 ConfigMaps come AFTER the Deployments. The new pods started on the OLD ConfigMap content (API answered 200 without a token, /callback 404) until I rollout-restarted all three. Fix: ConfigMaps before Deployments AND a pod-template annotation `checksum/config: <sha256 of the ConfigMap data>` so a content change rolls the pods (or kustomize configMapGenerator hash suffixes).
+  B. The hand-written redis client never reconnects and has no per-command timeout: after the db pod rolled, /api/presets hung forever while /api/health kept returning 200 (readiness lied). Fix: reconnect on 'close'/'end' with backoff; reject pending commands on socket loss; per-command timeout → 503; readiness (/api/ready) PINGs redis, liveness stays cheap.
+
+TARGET FOR THIS ITERATION — ADR-0015 NetworkPolicy + ADR-0011 TLS between tiers:
+ 1. ADR-0015 — NetworkPolicy set in ns commons-grid (podSelector by app label; all policyTypes [Ingress, Egress]):
+      default-deny          podSelector {} ; ingress [] egress []
+      web                   ingress: 8080 from anywhere in-cluster (platform ingress controller lives in ns traefik — allow namespaceSelector kubernetes.io/metadata.name=traefik) ; 9113 from ns monitoring
+                            egress:  api 8000 (podSelector of api) ; DNS 53 udp+tcp to ns kube-system
+      api                   ingress: 8000 from web pods ; 9100 from ns monitoring
+                            egress:  db 6379 ; zitadel ns (kubernetes.io/metadata.name=zitadel) 8080 ; DNS 53
+      db                    ingress: 6379 from api pods ; 9121 from ns monitoring ; egress: DNS 53 only
+    kubelet probes are not subject to NetworkPolicy here (Cilium allows host→pod); nothing to allow for them. The redis_exporter in the db pod talks to redis over localhost — no rule needed.
+ 2. ADR-0011 — the 0011 rows are exactly web(10.42.1.211)->api:8000 and client->web:8080, plaintext. Platform has provisioned the CA side: ClusterIssuer `platform-ca` (cert-manager v1.19, issues ECDSA certs; issued Secret carries ca.crt/tls.crt/tls.key). Per workload add
+      apiVersion: cert-manager.io/v1  kind: Certificate  metadata: {name: commons-grid-api, namespace: commons-grid}
+      spec: {secretName: commons-grid-api-tls, dnsNames: [commons-grid-api, commons-grid-api.commons-grid.svc, commons-grid-api.commons-grid.svc.cluster.local], issuerRef: {name: platform-ca, kind: ClusterIssuer, group: cert-manager.io}}
+    (same for commons-grid-dynamics and commons-grid-db). Then:
+      api: https.createServer({key, cert}) on 8000 (node built-in tls, no npm); JWKS fetch may stay http to zitadel for now (platform side, not scored against you).
+      web: nginx listen 8443 ssl with its cert; Service 443→8443; proxy_pass https://commons-grid-api:8000 with proxy_ssl_verify on; proxy_ssl_trusted_certificate /etc/tls/ca.crt (mount the api Secret's ca.crt or the web Secret's — same CA); proxy_ssl_name commons-grid-api.commons-grid.svc.
+      db: redis --tls-port 6379 --port 0 --tls-cert-file/--tls-key-file/--tls-ca-cert-file from the Secret; api connects with node tls.connect (servername commons-grid-db.commons-grid.svc, ca); redis_exporter sidecar: --redis.addr rediss://localhost:6379 --tls-ca-cert-file.
+    Expected result: http_events rows for these pods show encrypted=1 (Pixie sees the TLS); every encrypted=0 row left is a finding.
+ 3. Fix A and B above in the same push.
+Push as deploy-iter4.yaml when croedig has approved; I apply, scan, re-evaluate. Terse replies.
