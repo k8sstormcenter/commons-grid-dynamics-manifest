@@ -1,0 +1,78 @@
+ITERATION 2 — MCP adr-compliance feedback for ns commons-grid (deploy-iter1.yaml applied 01:57Z; 3 pods governed+watched; scan + runtime + content)
+
+Progress: ADR-0009 COMPLIANT (tiers declared), ADR-0014 COMPLIANT (digests, IfNotPresent), ADR-0001/0002 COMPLIANT (web->api->redis is the prescribed topology). 0010/0012/0015 now observable.
+KPI (15 ADRs): 0001=COMP, 0002=COMP, 0003=VIOL(1), 0004=VIOL(3), 0005=VIOL(3), 0006=VIOL(5), 0007=COMP, 0008=VIOL(1), 0009=COMP, 0010=VIOL(1), 0011=NOT_, 0012=VIOL(2), 0013=VIOL(12), 0014=COMP, 0015=VIOL(1)
+
+adr_architecture:
+  commons-grid-api-58b67dd6d9-w8f7p  tier=backend (image: tier-by-image-backend)  verdict=CONSISTENT_WITH_TIER
+  commons-grid-db-6f9566cd56-hcr4n  tier=database (image: tier-by-image-database)  verdict=CONSISTENT_WITH_TIER
+  commons-grid-dynamics-7b9f75cf4f-fzb7h  tier=frontend (image: tier-by-image-frontend)  verdict=COMPUTATION_IN_PRESENTATION_TIER
+     - the served page executes 139 KB of client code (inline + loaded scripts: api.js, ode.js, charts.js, lit.js, lit2.js, ui.js), 57 functions, including numerical solvers/simulation (rk4, dp45, integrate, sample, jacobian, solveLinear, newton, eigenvalues, classify, modelA, modelAThresholds, modelAFixed
+     - business data is embedded in the page: datasets [], 129 money/pricing references
+     - application state is kept in the browser (localStorage)
+     - no authentication anywhere: no auth markers in the code, no Authorization handling
+
+adr_violations (application-owned):
+  ADR-0003  Automatic mapping of service account
+      observed: C-0034, C-0190, C-0261 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.automountServiceAccountToken = false
+  ADR-0004  a DNS lookup was made for a name outside the learned set
+      observed: Unexpected domain communication: registry.npmjs.org. from: api
+      fix: declare the dependency explicitly, or remove it
+  ADR-0004  backend reached an endpoint outside the cluster that its profile does not declare
+      observed: api reached registry.npmjs.org at 104.16.11.34, 104.16.7.34 — 2 addresses for the same dependency
+      fix: declare or remove the dependency on registry.npmjs.org. Do not allow-list the addresses: 2 of them appeared in one run and a CDN will rotate them.
+  ADR-0004  a process ran that is not part of the image's declared behaviour
+      observed: Unexpected process launched: node with PID 3381351
+      fix: if it is a package manager or fetch tool, move the work into the image build
+  ADR-0006  Allow privilege escalation
+      observed: C-0016, C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].securityContext.allowPrivilegeEscalation = false
+  ADR-0006  Apply Security Context to Your Pods and Containers
+      observed: C-0017, C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].securityContext.readOnlyRootFilesystem = true
+  ADR-0008  the presentation tier still computes
+      observed: 139 KB client JS across ['api.js', 'ode.js', 'charts.js', 'lit.js', 'lit2.js', 'ui.js']; 40 solver, 25 simulation, 129 pricing markers; solvers ['rk4', 'dp45', 'integrate
+      fix: move every solver/integrator/sweep behind the API (the browser renders, it does not compute); constants from GET /api/constants; drop the engine scripts from the shell
+  ADR-0010  frontend calls the backend without authenticating
+      observed: 1 fetch/XHR call sites, 0 OIDC/bearer markers in served code
+      fix: authorization-code + PKCE against the platform IdP; send Authorization: Bearer on every API call
+  ADR-0012  no dedicated metrics port
+      observed: containerPorts named [None]; none named metrics
+      fix: expose metrics on a second containerPort named metrics; add a ServiceMonitor/PodMonitor
+  ADR-0013  Apply Security Context to Your Pods and Containers
+      observed: C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].securityContext.capabilities.drop[*] = NET_RAW
+  ADR-0013  Ensure CPU limits are set
+      observed: C-0009, C-0050, C-0270 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].resources.limits.cpu = <choose a value>
+  ADR-0013  Ensure memory limits are set
+      observed: C-0004, C-0009, C-0271 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].resources.limits.memory = <choose a value>
+  ADR-0013  Ensure CPU requests are set
+      observed: C-0050, C-0268 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].resources.requests.cpu = <choose a value>
+  ADR-0013  Ensure memory requests are set
+      observed: C-0004, C-0269 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].resources.requests.memory = <choose a value>
+  ADR-0013  Ensure that the seccomp profile is set to docker/default in your pod definitions
+      observed: C-0210 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].securityContext.seccompProfile.type = RuntimeDefault
+  ADR-0013  Configured liveness probe
+      observed: C-0056 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].livenessProbe = <choose a value>
+  ADR-0013  Configured readiness probe
+      observed: C-0018 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics
+      fix: set spec.template.spec.containers[*].readinessProbe = <choose a value>
+  ADR-0015  no NetworkPolicy in the namespace
+      observed: 3 running pods, 0 NetworkPolicy objects
+      fix: default-deny ingress+egress; allow ingress-controller->frontend, frontend->backend, backend->database, backend->IdP, monitoring->metrics, all->DNS
+
+platform-owned, not yours (tier SBoBs declare no inter-tier edges yet): ADR-0005 the tier-backend profile does not declare the backend->datab; ADR-0005 the tier-frontend profile does not declare the frontend->bac; ADR-0005 the tier-backend profile does not declare the backend->dns e
+
+TARGET FOR THIS ITERATION (ADR-0013/0006/0003, finish 0008, fix 0004):
+ 1. envelope on all 3 workloads: resources.requests/limits (cpu+memory); livenessProbe + readinessProbe; securityContext {runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities.drop: [ALL], seccompProfile.type: RuntimeDefault}; automountServiceAccountToken: false. Stock nginx/node/redis start as root: use nginxinc/nginx-unprivileged (port 8080) with emptyDir /tmp, node with runAsUser 1000 and an emptyDir for writable paths, redis with runAsUser 999. Pin the new digests.
+ 2. ADR-0004: no `npm install` at container start — the api reached registry.npmjs.org (2 IPs) and spawned an unexpected node process. Vendor the redis client (or use node's built-in net to speak RESP); a backend's only egress is the data tier and the IdP.
+ 3. ADR-0008: the shell still executes the engine — ode.js, lit.js, lit2.js, ui.js carry rk4, dp45, jacobian, eigenvalues, newton, solveLinear (40 solver + 25 simulation markers, 139 KB client JS). Every solver/sweep/ensemble goes behind POST /api/*; the browser renders what the API returns. Constants via GET /api/constants, not script files. No localStorage: persist runs through the API.
+Later: (3) authN via ZITADEL — issuer http://zitadel.zitadel.svc:8080 (this rig routes on Host: localhost:8080), JWKS /oauth/v2/keys → every /api route except /api/health answers 401 without a valid bearer; a containerPort named `metrics` serving /metrics, 404 on the app port (ADR-0010/0012). (4) NetworkPolicy default-deny + TLS between tiers (ADR-0015/0011).
+Push as deploy-iter2.yaml when croedig has approved; I apply, scan, re-evaluate. Terse replies.

@@ -1,0 +1,1121 @@
+{
+  "schema": "adr-kpi/v1",
+  "generated_at": "2026-10-23T02:03:36+00:00",
+  "cluster": "edge4_79f499d2",
+  "namespace": "commons-grid",
+  "source": {
+    "clickhouse": "<clickhouse>",
+    "table": "forensic_db.kubescape_logs",
+    "window": {
+      "from": 1792720630,
+      "to": 1792721006
+    },
+    "rows": 4438,
+    "rules_seen": [
+      "R0001",
+      "R0002",
+      "R0005",
+      "R0011",
+      "R0012",
+      "R1018",
+      "R1030"
+    ],
+    "static": "static controls from /tmp/AllControls-commons-grid.json"
+  },
+  "summary": {
+    "adrs": 15,
+    "violated": 9,
+    "compliant": 5,
+    "not_observed": 1,
+    "coverage": {
+      "pods": 3,
+      "governed": 3,
+      "watched": true
+    }
+  },
+  "kpis": [
+    {
+      "kpi": "ADR-0001",
+      "status": "COMPLIANT",
+      "compliant": true,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0002",
+      "status": "COMPLIANT",
+      "compliant": true,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0003",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 1
+    },
+    {
+      "kpi": "ADR-0004",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 3
+    },
+    {
+      "kpi": "ADR-0005",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 3
+    },
+    {
+      "kpi": "ADR-0006",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 5
+    },
+    {
+      "kpi": "ADR-0007",
+      "status": "COMPLIANT",
+      "compliant": true,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0008",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 1
+    },
+    {
+      "kpi": "ADR-0009",
+      "status": "COMPLIANT",
+      "compliant": true,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0010",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 1
+    },
+    {
+      "kpi": "ADR-0011",
+      "status": "NOT_OBSERVED",
+      "compliant": false,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0012",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 2
+    },
+    {
+      "kpi": "ADR-0013",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 12
+    },
+    {
+      "kpi": "ADR-0014",
+      "status": "COMPLIANT",
+      "compliant": true,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0015",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 1
+    }
+  ],
+  "adrs": [
+    {
+      "id": "ADR-0001",
+      "title": "Tiers are strictly layered; the presentation tier never reaches the data tier",
+      "verified_by": "runtime R0011+R0012",
+      "status": "COMPLIANT",
+      "violations": 0,
+      "findings": []
+    },
+    {
+      "id": "ADR-0002",
+      "title": "The data tier never initiates outbound connections",
+      "verified_by": "runtime R0011",
+      "status": "COMPLIANT",
+      "violations": 0,
+      "findings": []
+    },
+    {
+      "id": "ADR-0003",
+      "title": "The presentation tier holds no cluster credentials",
+      "verified_by": "runtime R0006/R0010 (+ C-0034 static)",
+      "status": "VIOLATED",
+      "violations": 1,
+      "findings": [
+        {
+          "adr": "ADR-0003",
+          "decision_broken": "Automatic mapping of service account",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.automountServiceAccountToken",
+          "value": "false",
+          "agent_can_apply": true,
+          "needs_decision": false,
+          "control": "C-0034, C-0190, C-0261",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0034, C-0190, C-0261 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.automountServiceAccountToken = false"
+        }
+      ]
+    },
+    {
+      "id": "ADR-0004",
+      "title": "Images are immutable at runtime; nothing is installed after build",
+      "verified_by": "runtime R0001/R0005/R0011",
+      "status": "VIOLATED",
+      "violations": 3,
+      "findings": [
+        {
+          "adr": "ADR-0004",
+          "decision_broken": "a DNS lookup was made for a name outside the learned set",
+          "fix": "declare the dependency explicitly, or remove it",
+          "source": "runtime",
+          "rule": "R0005",
+          "rule_name": "DNS Anomalies in container",
+          "evidence_class": "observed",
+          "severity": "5",
+          "owner": "application",
+          "workload": "commons-grid-api-58b67dd6d9-w8f7p",
+          "container": "api",
+          "tier": "backend",
+          "node": "edge4-worker-2",
+          "process": "libuv-worker",
+          "pid": "3381293",
+          "observed": "Unexpected domain communication: registry.npmjs.org. from: api",
+          "timestamp": "2026-10-23T01:57:36.589574535Z",
+          "evidence": {
+            "table": "forensic_db.kubescape_logs",
+            "rows": 4,
+            "profile": "tier-backend",
+            "image": "docker.io/library/node:latest@sha256:a98e6fda54fdbb22d4238054cca9a2a113bcd1191c09193a535aae22f400aa8e",
+            "first": "2d2d60aa22f022de73f4deed5b61bea8",
+            "last": "2d2d60aa22f022de73f4deed5b61bea8"
+          }
+        },
+        {
+          "adr": "ADR-0004",
+          "decision_broken": "backend reached an endpoint outside the cluster that its profile does not declare",
+          "fix": "declare or remove the dependency on registry.npmjs.org. Do not allow-list the addresses: 2 of them appeared in one run and a CDN will rotate them.",
+          "source": "runtime",
+          "rule": "R0011",
+          "rule_name": "Unexpected Egress Network Traffic",
+          "evidence_class": "observed",
+          "severity": "8",
+          "owner": "application",
+          "workload": "commons-grid-api-58b67dd6d9-w8f7p",
+          "container": "api",
+          "tier": "backend",
+          "node": "edge4-worker-2",
+          "process": "npm install red",
+          "pid": "3381293",
+          "observed": "api reached registry.npmjs.org at 104.16.11.34, 104.16.7.34 \u2014 2 addresses for the same dependency",
+          "timestamp": "2026-10-23T01:57:36.607553804Z",
+          "evidence": {
+            "table": "forensic_db.kubescape_logs",
+            "rows": 1,
+            "profile": "tier-backend",
+            "image": "docker.io/library/node:latest@sha256:a98e6fda54fdbb22d4238054cca9a2a113bcd1191c09193a535aae22f400aa8e",
+            "first": "90a29c656d668be2aa83217454e910e7",
+            "last": "90a29c656d668be2aa83217454e910e7"
+          },
+          "peers": [
+            "104.16.11.34",
+            "104.16.7.34"
+          ],
+          "resolves_to": [
+            "registry.npmjs.org"
+          ]
+        },
+        {
+          "adr": "ADR-0004",
+          "decision_broken": "a process ran that is not part of the image's declared behaviour",
+          "fix": "if it is a package manager or fetch tool, move the work into the image build",
+          "source": "runtime",
+          "rule": "R0001",
+          "rule_name": "Unexpected process launched",
+          "evidence_class": "observed",
+          "severity": "1",
+          "owner": "application",
+          "workload": "commons-grid-api-58b67dd6d9-w8f7p",
+          "container": "api",
+          "tier": "backend",
+          "node": "edge4-worker-2",
+          "process": "node",
+          "pid": "3381351",
+          "observed": "Unexpected process launched: node with PID 3381351",
+          "timestamp": "2026-10-23T01:57:36.747347356Z",
+          "evidence": {
+            "table": "forensic_db.kubescape_logs",
+            "rows": 1,
+            "profile": "tier-backend",
+            "image": "docker.io/library/node:latest@sha256:a98e6fda54fdbb22d4238054cca9a2a113bcd1191c09193a535aae22f400aa8e",
+            "first": "1f6b849028d4c46a0e97f9eecfe83921",
+            "last": "1f6b849028d4c46a0e97f9eecfe83921"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ADR-0005",
+      "title": "Every workload declares its tier; an undeclared one is quarantined",
+      "verified_by": "kyverno admission + runtime on tier-unclassified",
+      "status": "VIOLATED",
+      "violations": 3,
+      "findings": [
+        {
+          "adr": "ADR-0005",
+          "decision_broken": "the tier-backend profile does not declare the backend->database edge the architecture prescribes",
+          "fix": "platform: declare the inter-tier edge (podSelector app.kubernetes.io/tier) in the tier profile egress/ingress",
+          "source": "runtime",
+          "rule": "R0011",
+          "rule_name": "Unexpected Egress Network Traffic",
+          "evidence_class": "observed",
+          "severity": "8",
+          "owner": "platform",
+          "workload": "commons-grid-api-58b67dd6d9-w8f7p",
+          "container": "api",
+          "tier": "backend",
+          "node": "edge4-worker-2",
+          "process": "node-MainThread",
+          "pid": "3381278",
+          "observed": "Unexpected egress network communication to: 10.42.1.144:6379 using TCP from: api",
+          "timestamp": "2026-10-23T01:57:43.183970402Z",
+          "evidence": {
+            "table": "forensic_db.kubescape_logs",
+            "rows": 1,
+            "profile": "tier-backend",
+            "image": "docker.io/library/node:latest@sha256:a98e6fda54fdbb22d4238054cca9a2a113bcd1191c09193a535aae22f400aa8e",
+            "first": "7dc67ffdffc8cfd446b85033e7a483ff",
+            "last": "7dc67ffdffc8cfd446b85033e7a483ff"
+          },
+          "corroborated_by": {
+            "rule": "R0012",
+            "workload": "commons-grid-db-6f9566cd56-hcr4n",
+            "container": "redis",
+            "observed": "Unexpected ingress network communication from: 10.42.0.141:6379 using TCP to: redis",
+            "node": "edge4-worker-1"
+          },
+          "confidence": "both endpoints observed",
+          "flow": "10.42.0.141 -> 10.42.1.144:6379"
+        },
+        {
+          "adr": "ADR-0005",
+          "decision_broken": "the tier-frontend profile does not declare the frontend->backend edge the architecture prescribes",
+          "fix": "platform: declare the inter-tier edge (podSelector app.kubernetes.io/tier) in the tier profile egress/ingress",
+          "source": "runtime",
+          "rule": "R0011",
+          "rule_name": "Unexpected Egress Network Traffic",
+          "evidence_class": "observed",
+          "severity": "8",
+          "owner": "platform",
+          "workload": "commons-grid-dynamics-7b9f75cf4f-fzb7h",
+          "container": "web",
+          "tier": "frontend",
+          "node": "edge4-server",
+          "process": "nginx",
+          "pid": "3089855",
+          "observed": "Unexpected egress network communication to: 10.42.0.141:8000 using TCP from: web",
+          "timestamp": "2026-10-23T01:58:23.268517936Z",
+          "evidence": {
+            "table": "forensic_db.kubescape_logs",
+            "rows": 15,
+            "profile": "tier-frontend",
+            "image": "docker.io/library/nginx:latest@sha256:4c41e2d0a3a55b325ed572cd0200bdb72af1433c3daa2bca6ef8eea68ce504a2",
+            "first": "8b5ca0712d7c692fdf55d4a21939d182",
+            "last": "8b5ca0712d7c692fdf55d4a21939d182"
+          },
+          "corroborated_by": {
+            "rule": "R0012",
+            "workload": "commons-grid-api-58b67dd6d9-w8f7p",
+            "container": "api",
+            "observed": "Unexpected ingress network communication from: 10.42.2.94:8000 using TCP to: api",
+            "node": "edge4-worker-2"
+          },
+          "confidence": "both endpoints observed",
+          "flow": "10.42.2.94 -> 10.42.0.141:8000"
+        },
+        {
+          "adr": "ADR-0005",
+          "decision_broken": "the tier-backend profile does not declare the backend->dns edge the architecture prescribes",
+          "fix": "platform: declare the inter-tier edge (podSelector app.kubernetes.io/tier) in the tier profile egress/ingress",
+          "source": "runtime",
+          "rule": "R0011",
+          "rule_name": "Unexpected Egress Network Traffic",
+          "evidence_class": "observed",
+          "severity": "8",
+          "owner": "platform",
+          "workload": "commons-grid-api-58b67dd6d9-w8f7p",
+          "container": "api",
+          "tier": "backend",
+          "node": "edge4-worker-2",
+          "process": "libuv-worker",
+          "pid": "3381293",
+          "observed": "Unexpected egress network communication to: 10.42.2.121:53 using UDP from: api",
+          "timestamp": "2026-10-23T01:57:36.491092734Z",
+          "evidence": {
+            "table": "forensic_db.kubescape_logs",
+            "rows": 28,
+            "profile": "tier-backend",
+            "image": "docker.io/library/node:latest@sha256:a98e6fda54fdbb22d4238054cca9a2a113bcd1191c09193a535aae22f400aa8e",
+            "first": "cf0569ce514fb0a18c0b7a3fb7966034",
+            "last": "cf0569ce514fb0a18c0b7a3fb7966034"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ADR-0006",
+      "title": "Workloads run as non-root",
+      "verified_by": "runtime R0004 (+ C-0013/16/17/46 static)",
+      "status": "VIOLATED",
+      "violations": 5,
+      "findings": [
+        {
+          "adr": "ADR-0006",
+          "decision_broken": "Allow privilege escalation",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].securityContext.allowPrivilegeEscalation",
+          "value": "false",
+          "agent_can_apply": true,
+          "needs_decision": false,
+          "control": "C-0016, C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0016, C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].securityContext.allowPrivilegeEscalation = false"
+        },
+        {
+          "adr": "ADR-0006",
+          "decision_broken": "Allow privilege escalation",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].securityContext.privileged",
+          "value": "false",
+          "agent_can_apply": true,
+          "needs_decision": false,
+          "control": "C-0016, C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0016, C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].securityContext.privileged = false"
+        },
+        {
+          "adr": "ADR-0006",
+          "decision_broken": "Apply Security Context to Your Pods and Containers",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].securityContext.readOnlyRootFilesystem",
+          "value": "true",
+          "agent_can_apply": true,
+          "needs_decision": false,
+          "control": "C-0017, C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0017, C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].securityContext.readOnlyRootFilesystem = true"
+        },
+        {
+          "adr": "ADR-0006",
+          "decision_broken": "Apply Security Context to Your Pods and Containers",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].securityContext.runAsGroup",
+          "value": "1000",
+          "agent_can_apply": true,
+          "needs_decision": false,
+          "control": "C-0013, C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0013, C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].securityContext.runAsGroup = 1000"
+        },
+        {
+          "adr": "ADR-0006",
+          "decision_broken": "Apply Security Context to Your Pods and Containers",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].securityContext.runAsNonRoot",
+          "value": "true",
+          "agent_can_apply": true,
+          "needs_decision": false,
+          "control": "C-0013, C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0013, C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].securityContext.runAsNonRoot = true"
+        }
+      ]
+    },
+    {
+      "id": "ADR-0007",
+      "title": "A profile may not wildcard above a path another rule protects",
+      "verified_by": "mechanical check of stored ContainerProfiles",
+      "status": "COMPLIANT",
+      "violations": 0,
+      "findings": [],
+      "note": "profiles read back: tier-backend, tier-database, tier-frontend, tier-middleware, tier-unclassified, replicaset-commons-grid-dynamics-566dd5dbdb-web-98d6-16d6, replicaset-commons-grid-db-6f9566cd56-redis-896a-7240, replicaset-commons-grid-dynamics-7b9f75cf4f-web-9f4a-ab62, replicaset-commons-grid-api-58b67dd6d9-api-0d1e-7168"
+    },
+    {
+      "id": "ADR-0008",
+      "title": "The presentation tier serves presentation only",
+      "verified_by": "content probe + runtime (zero egress, R0002)",
+      "status": "VIOLATED",
+      "violations": 1,
+      "findings": [
+        {
+          "adr": "ADR-0008",
+          "source": "content",
+          "evidence_class": "observed",
+          "workload": "commons-grid-dynamics-7b9f75cf4f-fzb7h",
+          "decision_broken": "the presentation tier still computes",
+          "observed": "139 KB client JS across ['api.js', 'ode.js', 'charts.js', 'lit.js', 'lit2.js', 'ui.js']; 40 solver, 25 simulation, 129 pricing markers; solvers ['rk4', 'dp45', 'integrate', 'sample', 'jacobian', 'solveLinear']",
+          "fix": "move every solver/integrator/sweep behind the API (the browser renders, it does not compute); constants from GET /api/constants; drop the engine scripts from the shell",
+          "verdict": "COMPUTATION_IN_PRESENTATION_TIER"
+        }
+      ]
+    },
+    {
+      "id": "ADR-0009",
+      "title": "A tier is declared, never guessed",
+      "verified_by": "admission: pod label vs manifest, kyverno regexes",
+      "status": "COMPLIANT",
+      "violations": 0,
+      "findings": []
+    },
+    {
+      "id": "ADR-0010",
+      "title": "Every backend request is authenticated by the platform IdP (ZITADEL)",
+      "verified_by": "live probe 401 + content OIDC markers",
+      "status": "VIOLATED",
+      "violations": 1,
+      "findings": [
+        {
+          "adr": "ADR-0010",
+          "source": "content",
+          "evidence_class": "observed",
+          "workload": "commons-grid-dynamics-7b9f75cf4f-fzb7h",
+          "decision_broken": "frontend calls the backend without authenticating",
+          "observed": "1 fetch/XHR call sites, 0 OIDC/bearer markers in served code",
+          "fix": "authorization-code + PKCE against the platform IdP; send Authorization: Bearer on every API call"
+        }
+      ]
+    },
+    {
+      "id": "ADR-0011",
+      "title": "No plaintext on the wire",
+      "verified_by": "Pixie http_events/pgsql_events encrypted=0 (+ static Service/Ingress)",
+      "status": "NOT_OBSERVED",
+      "violations": 0,
+      "findings": []
+    },
+    {
+      "id": "ADR-0012",
+      "title": "Metrics on a dedicated port, scraped only by the platform",
+      "verified_by": "live probe /metrics + static port named metrics + http_events",
+      "status": "VIOLATED",
+      "violations": 2,
+      "findings": [
+        {
+          "adr": "ADR-0012",
+          "source": "static",
+          "evidence_class": "declared",
+          "workload": "commons-grid-api",
+          "decision_broken": "no dedicated metrics port",
+          "observed": "containerPorts named [None]; none named metrics",
+          "fix": "expose metrics on a second containerPort named metrics; add a ServiceMonitor/PodMonitor"
+        },
+        {
+          "adr": "ADR-0012",
+          "source": "static",
+          "evidence_class": "declared",
+          "workload": "commons-grid-db",
+          "decision_broken": "no dedicated metrics port",
+          "observed": "containerPorts named [None]; none named metrics",
+          "fix": "expose metrics on a second containerPort named metrics; add a ServiceMonitor/PodMonitor"
+        }
+      ]
+    },
+    {
+      "id": "ADR-0013",
+      "title": "Every workload declares its envelope: resources, probes, securityContext",
+      "verified_by": "static C-0004/9/50/268-271, C-0018/56, C-0055/210/211",
+      "status": "VIOLATED",
+      "violations": 12,
+      "findings": [
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Apply Security Context to Your Pods and Containers",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].securityContext.capabilities.drop[*]",
+          "value": "NET_RAW",
+          "agent_can_apply": true,
+          "needs_decision": false,
+          "control": "C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].securityContext.capabilities.drop[*] = NET_RAW"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Apply Security Context to Your Pods and Containers",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.securityContext.fsGroupChangePolicy",
+          "value": "Always",
+          "agent_can_apply": true,
+          "needs_decision": false,
+          "control": "C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.securityContext.fsGroupChangePolicy = Always"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Ensure CPU limits are set",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].resources.limits.cpu",
+          "value": null,
+          "agent_can_apply": false,
+          "needs_decision": true,
+          "control": "C-0009, C-0050, C-0270",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0009, C-0050, C-0270 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].resources.limits.cpu = <choose a value>"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Ensure memory limits are set",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].resources.limits.memory",
+          "value": null,
+          "agent_can_apply": false,
+          "needs_decision": true,
+          "control": "C-0004, C-0009, C-0271",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0004, C-0009, C-0271 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].resources.limits.memory = <choose a value>"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Ensure CPU requests are set",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].resources.requests.cpu",
+          "value": null,
+          "agent_can_apply": false,
+          "needs_decision": true,
+          "control": "C-0050, C-0268",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0050, C-0268 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].resources.requests.cpu = <choose a value>"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Ensure memory requests are set",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].resources.requests.memory",
+          "value": null,
+          "agent_can_apply": false,
+          "needs_decision": true,
+          "control": "C-0004, C-0269",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0004, C-0269 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].resources.requests.memory = <choose a value>"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Apply Security Context to Your Pods and Containers",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].securityContext.seLinuxOptions",
+          "value": null,
+          "agent_can_apply": false,
+          "needs_decision": true,
+          "control": "C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].securityContext.seLinuxOptions = <choose a value>"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Apply Security Context to Your Pods and Containers",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].securityContext.seccompProfile",
+          "value": null,
+          "agent_can_apply": false,
+          "needs_decision": true,
+          "control": "C-0055, C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0055, C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].securityContext.seccompProfile = <choose a value>"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Apply Security Context to Your Pods and Containers",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.securityContext.fsGroup",
+          "value": null,
+          "agent_can_apply": false,
+          "needs_decision": true,
+          "control": "C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.securityContext.fsGroup = <choose a value>"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Ensure that the seccomp profile is set to docker/default in your pod definitions",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "Medium",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].securityContext.seccompProfile.type",
+          "value": "RuntimeDefault",
+          "agent_can_apply": true,
+          "needs_decision": false,
+          "control": "C-0210",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0210 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].securityContext.seccompProfile.type = RuntimeDefault"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Configured liveness probe",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "Medium",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].livenessProbe",
+          "value": null,
+          "agent_can_apply": false,
+          "needs_decision": true,
+          "control": "C-0056",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0056 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].livenessProbe = <choose a value>"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Configured readiness probe",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "Low",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].readinessProbe",
+          "value": null,
+          "agent_can_apply": false,
+          "needs_decision": true,
+          "control": "C-0018",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0018 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].readinessProbe = <choose a value>"
+        }
+      ]
+    },
+    {
+      "id": "ADR-0014",
+      "title": "Images are pinned by digest, signed; no latest",
+      "verified_by": "static image string (+ C-0236/C-0237)",
+      "status": "COMPLIANT",
+      "violations": 0,
+      "findings": []
+    },
+    {
+      "id": "ADR-0015",
+      "title": "Ingress is the platform's: no NodePort/hostPort, NetworkPolicy present",
+      "verified_by": "static Service type, hostPort, netpol count (+ C-0030/C-0260/C-0044)",
+      "status": "VIOLATED",
+      "violations": 1,
+      "findings": [
+        {
+          "adr": "ADR-0015",
+          "source": "static",
+          "evidence_class": "declared",
+          "workload": "commons-grid",
+          "decision_broken": "no NetworkPolicy in the namespace",
+          "observed": "3 running pods, 0 NetworkPolicy objects",
+          "fix": "default-deny ingress+egress; allow ingress-controller->frontend, frontend->backend, backend->database, backend->IdP, monitoring->metrics, all->DNS"
+        }
+      ]
+    }
+  ],
+  "architecture": [
+    {
+      "pod": "commons-grid-api-58b67dd6d9-w8f7p",
+      "verdict": "CONSISTENT_WITH_TIER",
+      "classification": {
+        "tier": "backend",
+        "images": [
+          "docker.io/library/node:latest@sha256:a98e6fda54fdbb22d4238054cca9a2a113bcd1191c09193a535aae22f400aa8e"
+        ],
+        "ports": [
+          8000
+        ],
+        "matched_by": "image: tier-by-image-backend",
+        "custom_image": false
+      },
+      "content": {
+        "error": "HTTP Error 404: Not Found"
+      },
+      "behaviour": {
+        "rows": 4349,
+        "rules": [
+          "R0001",
+          "R0002",
+          "R0005",
+          "R0011",
+          "R0012",
+          "R1030"
+        ],
+        "egress_events": 35,
+        "egress_peers": [
+          "10.42.1.144:6379",
+          "10.42.2.121:53",
+          "104.16.11.34:443",
+          "104.16.7.34:443"
+        ],
+        "unexpected_opens": [
+          "/dev/null",
+          "/etc/gai.conf",
+          "/etc/host.conf",
+          "/etc/hosts",
+          "/etc/netsvc.conf",
+          "/etc/nsswitch.conf",
+          "/etc/resolv.conf",
+          "/etc/ssl/openssl.cnf",
+          "/etc/svc.conf",
+          "/proc/1/cgroup"
+        ]
+      },
+      "reasons": [
+        "the container read files the tier-backend baseline does not declare (R0002): ['/dev/null', '/etc/gai.conf', '/etc/host.conf']",
+        "egress observed to ['10.42.1.144:6379', '10.42.2.121:53', '104.16.11.34:443', '104.16.7.34:443']"
+      ],
+      "recommendations": [
+        {
+          "what": "ADR-0006 Allow privilege escalation",
+          "how": "set spec.template.spec.containers[*].securityContext.allowPrivilegeEscalation = false"
+        },
+        {
+          "what": "ADR-0006 Allow privilege escalation",
+          "how": "set spec.template.spec.containers[*].securityContext.privileged = false"
+        },
+        {
+          "what": "ADR-0006 Apply Security Context to Your Pods and Containers",
+          "how": "set spec.template.spec.containers[*].securityContext.readOnlyRootFilesystem = true"
+        },
+        {
+          "what": "ADR-0006 Apply Security Context to Your Pods and Containers",
+          "how": "set spec.template.spec.containers[*].securityContext.runAsGroup = 1000"
+        },
+        {
+          "what": "ADR-0006 Apply Security Context to Your Pods and Containers",
+          "how": "set spec.template.spec.containers[*].securityContext.runAsNonRoot = true"
+        }
+      ]
+    },
+    {
+      "pod": "commons-grid-db-6f9566cd56-hcr4n",
+      "verdict": "CONSISTENT_WITH_TIER",
+      "classification": {
+        "tier": "database",
+        "images": [
+          "docker.io/library/redis:latest@sha256:97ec88159e6d7cfb5ddef9015386087d58a912de80112f06ebdfa78fa5989901"
+        ],
+        "ports": [
+          6379
+        ],
+        "matched_by": "image: tier-by-image-database",
+        "custom_image": false
+      },
+      "content": {
+        "error": "Remote end closed connection without response"
+      },
+      "behaviour": {
+        "rows": 4,
+        "rules": [
+          "R0012"
+        ],
+        "egress_events": 0,
+        "egress_peers": [],
+        "unexpected_opens": []
+      },
+      "reasons": [],
+      "recommendations": [
+        {
+          "what": "ADR-0006 Allow privilege escalation",
+          "how": "set spec.template.spec.containers[*].securityContext.allowPrivilegeEscalation = false"
+        },
+        {
+          "what": "ADR-0006 Allow privilege escalation",
+          "how": "set spec.template.spec.containers[*].securityContext.privileged = false"
+        },
+        {
+          "what": "ADR-0006 Apply Security Context to Your Pods and Containers",
+          "how": "set spec.template.spec.containers[*].securityContext.readOnlyRootFilesystem = true"
+        },
+        {
+          "what": "ADR-0006 Apply Security Context to Your Pods and Containers",
+          "how": "set spec.template.spec.containers[*].securityContext.runAsGroup = 1000"
+        },
+        {
+          "what": "ADR-0006 Apply Security Context to Your Pods and Containers",
+          "how": "set spec.template.spec.containers[*].securityContext.runAsNonRoot = true"
+        }
+      ]
+    },
+    {
+      "pod": "commons-grid-dynamics-7b9f75cf4f-fzb7h",
+      "verdict": "COMPUTATION_IN_PRESENTATION_TIER",
+      "classification": {
+        "tier": "frontend",
+        "images": [
+          "docker.io/library/nginx:latest@sha256:4c41e2d0a3a55b325ed572cd0200bdb72af1433c3daa2bca6ef8eea68ce504a2"
+        ],
+        "ports": [
+          80
+        ],
+        "matched_by": "image: tier-by-image-frontend",
+        "custom_image": false
+      },
+      "content": {
+        "title": "Commons Grid Dynamics",
+        "bytes": 12486,
+        "inline_js_bytes": 142453,
+        "external_scripts": [
+          "api.js",
+          "ode.js",
+          "charts.js",
+          "lit.js",
+          "lit2.js",
+          "ui.js"
+        ],
+        "script_bytes": {
+          "api.js": 1785,
+          "ode.js": 16383,
+          "charts.js": 16723,
+          "lit.js": 24115,
+          "lit2.js": 22580,
+          "ui.js": 60867
+        },
+        "functions": 57,
+        "function_sample": [
+          "rk4",
+          "dp45",
+          "integrate",
+          "sample",
+          "jacobian",
+          "solveLinear",
+          "newton",
+          "eigenvalues",
+          "classify",
+          "modelA",
+          "modelAThresholds",
+          "modelAFixedPoints"
+        ],
+        "datasets": [],
+        "markers": {
+          "numeric_solvers": 40,
+          "statistics": 5,
+          "simulation": 25,
+          "money": 129,
+          "client_state": 2,
+          "backend_calls": 1,
+          "auth": 0
+        }
+      },
+      "behaviour": {
+        "rows": 82,
+        "rules": [
+          "R0002",
+          "R0011",
+          "R0012"
+        ],
+        "egress_events": 15,
+        "egress_peers": [
+          "10.42.0.141:8000"
+        ],
+        "unexpected_opens": [
+          "/usr/share/nginx/html/..2026_10_23_01_57_11.2467233912/api.js",
+          "/usr/share/nginx/html/..2026_10_23_01_57_11.2467233912/charts.js",
+          "/usr/share/nginx/html/..2026_10_23_01_57_11.2467233912/index.html",
+          "/usr/share/nginx/html/..2026_10_23_01_57_11.2467233912/lit.js",
+          "/usr/share/nginx/html/..2026_10_23_01_57_11.2467233912/lit2.js",
+          "/usr/share/nginx/html/..2026_10_23_01_57_11.2467233912/ode.js",
+          "/usr/share/nginx/html/..2026_10_23_01_57_11.2467233912/ui.js"
+        ]
+      },
+      "reasons": [
+        "the served page executes 139 KB of client code (inline + loaded scripts: api.js, ode.js, charts.js, lit.js, lit2.js, ui.js), 57 functions, including numerical solvers/simulation (rk4, dp45, integrate, sample, jacobian, solveLinear, newton, eigenvalues, classify, modelA, modelAThresholds, modelAFixedPoints)",
+        "business data is embedded in the page: datasets [], 129 money/pricing references",
+        "application state is kept in the browser (localStorage)",
+        "no authentication anywhere: no auth markers in the code, no Authorization handling",
+        "the container read files the tier-frontend baseline does not declare (R0002): ['/usr/share/nginx/html/..2026_10_23_01_57_11.2467233912/api.js', '/usr/share/nginx/html/..2026_10_23_01_57_11.2467233912/charts.js', '/usr/share/nginx/html/..2026_10_23_01_57_11.2467233912/index.html']",
+        "egress observed to ['10.42.0.141:8000']"
+      ],
+      "recommendations": [
+        {
+          "what": "finish the split",
+          "how": "the shell still ships the engine (rk4, dp45, integrate, sample, jacobian, solveLinear, newton, eigenvalues); every solver, integrator and sweep belongs behind the API \u2014 the browser renders results, it does not compute them; pricing/preset constants come from GET /api/constants, not from a script file"
+        },
+        {
+          "what": "add authentication",
+          "how": "put authN on the backend API (OIDC/JWT bearer on every request); the frontend never holds credentials (ADR-0003); unauthenticated requests get 401 \u2014 then the request trace carries the evidence"
+        },
+        {
+          "what": "server-side state",
+          "how": "localStorage state cannot be audited or shared; persist runs via the backend into the data tier"
+        },
+        {
+          "what": "ADR-0006 Allow privilege escalation",
+          "how": "set spec.template.spec.containers[*].securityContext.allowPrivilegeEscalation = false"
+        },
+        {
+          "what": "ADR-0006 Allow privilege escalation",
+          "how": "set spec.template.spec.containers[*].securityContext.privileged = false"
+        },
+        {
+          "what": "ADR-0006 Apply Security Context to Your Pods and Containers",
+          "how": "set spec.template.spec.containers[*].securityContext.readOnlyRootFilesystem = true"
+        },
+        {
+          "what": "ADR-0006 Apply Security Context to Your Pods and Containers",
+          "how": "set spec.template.spec.containers[*].securityContext.runAsGroup = 1000"
+        },
+        {
+          "what": "ADR-0006 Apply Security Context to Your Pods and Containers",
+          "how": "set spec.template.spec.containers[*].securityContext.runAsNonRoot = true"
+        }
+      ]
+    }
+  ],
+  "workloads": [
+    {
+      "pod": "commons-grid-api-58b67dd6d9-w8f7p",
+      "ip": "10.42.0.141",
+      "tier": "backend"
+    },
+    {
+      "pod": "commons-grid-db-6f9566cd56-hcr4n",
+      "ip": "10.42.1.144",
+      "tier": "database"
+    },
+    {
+      "pod": "commons-grid-dynamics-7b9f75cf4f-fzb7h",
+      "ip": "10.42.2.94",
+      "tier": "frontend"
+    }
+  ],
+  "broken_before_anything_else": []
+}

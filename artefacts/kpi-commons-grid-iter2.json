@@ -1,0 +1,928 @@
+{
+  "schema": "adr-kpi/v1",
+  "generated_at": "2026-10-23T02:34:57+00:00",
+  "cluster": "edge4_79f499d2",
+  "namespace": "commons-grid",
+  "source": {
+    "clickhouse": "<clickhouse>",
+    "table": "forensic_db.kubescape_logs",
+    "window": {
+      "from": 1792721689,
+      "to": 1792722886
+    },
+    "rows": 2183,
+    "rules_seen": [
+      "R0001",
+      "R0002",
+      "R0004",
+      "R0011",
+      "R0012",
+      "R1018",
+      "R1030"
+    ],
+    "static": "static controls from /tmp/AllControls-commons-grid.json"
+  },
+  "summary": {
+    "adrs": 15,
+    "violated": 8,
+    "compliant": 7,
+    "not_observed": 0,
+    "coverage": {
+      "pods": 3,
+      "governed": 3,
+      "watched": true
+    }
+  },
+  "kpis": [
+    {
+      "kpi": "ADR-0001",
+      "status": "COMPLIANT",
+      "compliant": true,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0002",
+      "status": "COMPLIANT",
+      "compliant": true,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0003",
+      "status": "COMPLIANT",
+      "compliant": true,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0004",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 1
+    },
+    {
+      "kpi": "ADR-0005",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 2
+    },
+    {
+      "kpi": "ADR-0006",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 1
+    },
+    {
+      "kpi": "ADR-0007",
+      "status": "COMPLIANT",
+      "compliant": true,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0008",
+      "status": "COMPLIANT",
+      "compliant": true,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0009",
+      "status": "COMPLIANT",
+      "compliant": true,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0010",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 2
+    },
+    {
+      "kpi": "ADR-0011",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 16
+    },
+    {
+      "kpi": "ADR-0012",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 2
+    },
+    {
+      "kpi": "ADR-0013",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 3
+    },
+    {
+      "kpi": "ADR-0014",
+      "status": "COMPLIANT",
+      "compliant": true,
+      "violations": 0
+    },
+    {
+      "kpi": "ADR-0015",
+      "status": "VIOLATED",
+      "compliant": false,
+      "violations": 1
+    }
+  ],
+  "adrs": [
+    {
+      "id": "ADR-0001",
+      "title": "Tiers are strictly layered; the presentation tier never reaches the data tier",
+      "verified_by": "runtime R0011+R0012",
+      "status": "COMPLIANT",
+      "violations": 0,
+      "findings": [
+        {
+          "adr": "ADR-0001",
+          "decision_broken": "the data tier accepted a connection from outside the application tier",
+          "fix": "route the query through the service labelled tier=backend",
+          "source": "runtime",
+          "rule": "R0012",
+          "rule_name": "Unexpected Ingress Network Traffic",
+          "evidence_class": "observed",
+          "severity": "8",
+          "owner": "application",
+          "workload": "commons-grid-db-764c5fb86d-srpc9",
+          "container": "redis",
+          "tier": "database",
+          "node": "edge4-worker-2",
+          "process": "redis-server",
+          "pid": "3400684",
+          "observed": "Unexpected ingress network communication from: 10.42.0.141:6379 using TCP to: redis",
+          "timestamp": "2026-10-23T02:15:00.563018089Z",
+          "note": "peer 10.42.0.141 is not a live pod; 2 pod(s) of this namespace departed in the window (commons-grid-api-58b67dd6d9-w8f7p, commons-grid-db-6f9566cd56-hcr4n) \u2014 rollover traffic, not counted",
+          "counted": false,
+          "evidence": {
+            "table": "forensic_db.kubescape_logs",
+            "rows": 1,
+            "profile": "tier-database",
+            "image": "docker.io/library/redis:latest@sha256:97ec88159e6d7cfb5ddef9015386087d58a912de80112f06ebdfa78fa5989901",
+            "first": "1b024c381559902e132bd076be3c5ae6",
+            "last": "1b024c381559902e132bd076be3c5ae6",
+            "cmdline": "/usr/local/bin/redis-server --loadmodule /usr/local/lib/redis/modules//redisbloom.so --loadmodule /usr/local/lib/redis/modules//redisearch.so --loadmodule /usr/local/lib/redis/modules//redistimeseries.so --loadmodule /usr/local/lib/redis/modules//rejson.so",
+            "parent": "containerd-shim"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ADR-0002",
+      "title": "The data tier never initiates outbound connections",
+      "verified_by": "runtime R0011",
+      "status": "COMPLIANT",
+      "violations": 0,
+      "findings": []
+    },
+    {
+      "id": "ADR-0003",
+      "title": "The presentation tier holds no cluster credentials",
+      "verified_by": "runtime R0006/R0010 (+ C-0034 static)",
+      "status": "COMPLIANT",
+      "violations": 0,
+      "findings": []
+    },
+    {
+      "id": "ADR-0004",
+      "title": "Images are immutable at runtime; nothing is installed after build",
+      "verified_by": "runtime R0001/R0005/R0011",
+      "status": "VIOLATED",
+      "violations": 1,
+      "findings": [
+        {
+          "adr": "ADR-0004",
+          "decision_broken": "a process ran that is not part of the image's declared behaviour",
+          "fix": "if this is a probe: use tcpSocket/httpGet instead of exec; if it was kubectl exec: nothing to fix in the image",
+          "source": "runtime",
+          "rule": "R0001",
+          "rule_name": "Unexpected process launched",
+          "evidence_class": "observed",
+          "severity": "1",
+          "owner": "application",
+          "workload": "commons-grid-db-764c5fb86d-srpc9",
+          "container": "redis",
+          "tier": "database",
+          "node": "edge4-worker-2",
+          "process": "redis-cli",
+          "pid": "3400853",
+          "observed": "Unexpected process launched: redis-cli with PID 3400853",
+          "timestamp": "2026-10-23T02:14:59.907599028Z",
+          "evidence": {
+            "table": "forensic_db.kubescape_logs",
+            "rows": 1,
+            "profile": "tier-database",
+            "image": "docker.io/library/redis:latest@sha256:97ec88159e6d7cfb5ddef9015386087d58a912de80112f06ebdfa78fa5989901",
+            "first": "8c440d551813a2fbe5c4f304868b417f",
+            "last": "8c440d551813a2fbe5c4f304868b417f",
+            "cmdline": "/usr/local/bin/redis-cli ping",
+            "parent": "containerd-shim"
+          },
+          "cause": "started by exec (kubelet exec probe or kubectl exec), parent containerd-shim"
+        },
+        {
+          "adr": "ADR-0004",
+          "decision_broken": "a process ran that is not part of the image's declared behaviour",
+          "fix": "if it is a package manager or fetch tool, move the work into the image build",
+          "source": "runtime",
+          "rule": "R0001",
+          "rule_name": "Unexpected process launched",
+          "evidence_class": "observed",
+          "severity": "1",
+          "owner": "platform",
+          "workload": "commons-grid-api-f84dcb449-dtv2w",
+          "container": "api",
+          "tier": "backend",
+          "node": "edge4-worker-1",
+          "process": "node",
+          "pid": "3583360",
+          "observed": "Unexpected process launched: node with PID 3583360",
+          "timestamp": "2026-10-23T02:15:20.189785698Z",
+          "evidence": {
+            "table": "forensic_db.kubescape_logs",
+            "rows": 1,
+            "profile": "tier-backend",
+            "image": "docker.io/library/node:latest@sha256:a98e6fda54fdbb22d4238054cca9a2a113bcd1191c09193a535aae22f400aa8e",
+            "first": "1f6b849028d4c46a0e97f9eecfe83921",
+            "last": "1f6b849028d4c46a0e97f9eecfe83921",
+            "cmdline": "/usr/local/bin/node --version",
+            "parent": "pem"
+          },
+          "counted": false,
+          "note": "parent process is pem (the tracer); not the application's behaviour"
+        }
+      ]
+    },
+    {
+      "id": "ADR-0005",
+      "title": "Every workload declares its tier; an undeclared one is quarantined",
+      "verified_by": "kyverno admission + runtime on tier-unclassified",
+      "status": "VIOLATED",
+      "violations": 2,
+      "findings": [
+        {
+          "adr": "ADR-0005",
+          "decision_broken": "the tier-frontend profile does not declare the frontend->backend edge the architecture prescribes",
+          "fix": "platform: declare the inter-tier edge (podSelector app.kubernetes.io/tier) in the tier profile egress/ingress",
+          "source": "runtime",
+          "rule": "R0011",
+          "rule_name": "Unexpected Egress Network Traffic",
+          "evidence_class": "observed",
+          "severity": "8",
+          "owner": "platform",
+          "workload": "commons-grid-dynamics-666d597b47-v9z2z",
+          "container": "web",
+          "tier": "frontend",
+          "node": "edge4-worker-2",
+          "process": "nginx",
+          "pid": "3400788",
+          "observed": "Unexpected egress network communication to: 10.42.1.184:8000 using TCP from: web",
+          "timestamp": "2026-10-23T02:16:36.94645068Z",
+          "evidence": {
+            "table": "forensic_db.kubescape_logs",
+            "rows": 24,
+            "profile": "tier-frontend",
+            "image": "docker.io/nginxinc/nginx-unprivileged:latest@sha256:09b0d3eda2aa592d2487f284519419015cab010d7df16cd0fe224b585fc60eb6",
+            "first": "57c79b6dd1658d5b2b448c8a7f3ce3a1",
+            "last": "57c79b6dd1658d5b2b448c8a7f3ce3a1",
+            "cmdline": "nginx: master process nginx -g daemon off;",
+            "parent": "containerd-shim"
+          },
+          "corroborated_by": {
+            "rule": "R0012",
+            "workload": "commons-grid-api-f84dcb449-dtv2w",
+            "container": "api",
+            "observed": "Unexpected ingress network communication from: 10.42.0.241:8000 using TCP to: api",
+            "node": "edge4-worker-1"
+          },
+          "confidence": "both endpoints observed",
+          "flow": "10.42.0.241 -> 10.42.1.184:8000"
+        },
+        {
+          "adr": "ADR-0005",
+          "decision_broken": "the tier-database profile does not declare the backend->database edge the architecture prescribes",
+          "fix": "platform: declare the inter-tier edge (podSelector app.kubernetes.io/tier) in the tier profile egress/ingress",
+          "source": "runtime",
+          "rule": "R0012",
+          "rule_name": "Unexpected Ingress Network Traffic",
+          "evidence_class": "observed",
+          "severity": "8",
+          "owner": "platform",
+          "workload": "commons-grid-db-764c5fb86d-srpc9",
+          "container": "redis",
+          "tier": "database",
+          "node": "edge4-worker-2",
+          "process": "redis-server",
+          "pid": "3400684",
+          "observed": "Unexpected ingress network communication from: 10.42.1.184:6379 using TCP to: redis",
+          "timestamp": "2026-10-23T02:15:15.056496488Z",
+          "evidence": {
+            "table": "forensic_db.kubescape_logs",
+            "rows": 1,
+            "profile": "tier-database",
+            "image": "docker.io/library/redis:latest@sha256:97ec88159e6d7cfb5ddef9015386087d58a912de80112f06ebdfa78fa5989901",
+            "first": "50693a4d16b8532a536e49973fe985d8",
+            "last": "50693a4d16b8532a536e49973fe985d8",
+            "cmdline": "/usr/local/bin/redis-server --loadmodule /usr/local/lib/redis/modules//redisbloom.so --loadmodule /usr/local/lib/redis/modules//redisearch.so --loadmodule /usr/local/lib/redis/modules//redistimeseries.so --loadmodule /usr/local/lib/redis/modules//rejson.so",
+            "parent": "containerd-shim"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ADR-0006",
+      "title": "Workloads run as non-root",
+      "verified_by": "runtime R0004 (+ C-0013/16/17/46 static)",
+      "status": "VIOLATED",
+      "violations": 1,
+      "findings": [
+        {
+          "adr": "ADR-0006",
+          "decision_broken": "the container used a Linux capability, i.e. it starts as root and drops",
+          "fix": "the exec probe enters the container through runc, which uses CAP_SYS_ADMIN and reads /proc; use a tcpSocket or httpGet probe instead",
+          "source": "runtime",
+          "rule": "R0004",
+          "rule_name": "Linux Capabilities Anomalies in container",
+          "evidence_class": "observed",
+          "severity": "1",
+          "owner": "application",
+          "workload": "commons-grid-db-764c5fb86d-srpc9",
+          "container": "redis",
+          "tier": "database",
+          "node": "edge4-worker-2",
+          "process": "runc:[1:CHILD]",
+          "pid": "3400852",
+          "observed": "Unexpected capability used: CAP_SYS_ADMIN in syscall read with PID 3400852",
+          "timestamp": "2026-10-23T02:14:59.734277648Z",
+          "evidence": {
+            "table": "forensic_db.kubescape_logs",
+            "rows": 1,
+            "profile": "tier-database",
+            "image": "docker.io/library/redis:latest@sha256:97ec88159e6d7cfb5ddef9015386087d58a912de80112f06ebdfa78fa5989901",
+            "first": "d188a8db4913d0e611ab73711e9a9d9b",
+            "last": "d188a8db4913d0e611ab73711e9a9d9b",
+            "cmdline": null,
+            "parent": null
+          },
+          "cause": "kubelet exec probe (runc entering the container)"
+        }
+      ]
+    },
+    {
+      "id": "ADR-0007",
+      "title": "A profile may not wildcard above a path another rule protects",
+      "verified_by": "mechanical check of stored ContainerProfiles",
+      "status": "COMPLIANT",
+      "violations": 0,
+      "findings": [],
+      "note": "profiles read back: tier-backend, tier-database, tier-frontend, tier-middleware, tier-unclassified, replicaset-commons-grid-dynamics-566dd5dbdb-web-98d6-16d6, replicaset-commons-grid-dynamics-7b9f75cf4f-web-9f4a-ab62, replicaset-commons-grid-db-6f9566cd56-redis-896a-7240, replicaset-commons-grid-api-58b67dd6d9-api-0d1e-7168, replicaset-commons-grid-db-764c5fb86d-redis-ff75-7d63, replicaset-commons-grid-dynamics-666d597b47-web-2222-0354, replicaset-commons-grid-api-f84dcb449-api-66e9-4c56, replicaset-commons-grid-db-764c5fb86d-redis-ff75-7d63-384605b4cbb24e3f94b1d0d108ca53aa"
+    },
+    {
+      "id": "ADR-0008",
+      "title": "The presentation tier serves presentation only",
+      "verified_by": "content probe + runtime (zero egress, R0002)",
+      "status": "COMPLIANT",
+      "violations": 0,
+      "findings": []
+    },
+    {
+      "id": "ADR-0009",
+      "title": "A tier is declared, never guessed",
+      "verified_by": "admission: pod label vs manifest, kyverno regexes",
+      "status": "COMPLIANT",
+      "violations": 0,
+      "findings": []
+    },
+    {
+      "id": "ADR-0010",
+      "title": "Every backend request is authenticated by the platform IdP (ZITADEL)",
+      "verified_by": "live probe 401 + content OIDC markers",
+      "status": "VIOLATED",
+      "violations": 2,
+      "findings": [
+        {
+          "adr": "ADR-0010",
+          "source": "probe",
+          "evidence_class": "observed",
+          "workload": "commons-grid-api",
+          "decision_broken": "backend answers without a bearer token",
+          "observed": "GET http://10.42.1.184:8000 without Authorization: /api/abuses->200, /api/constants->200, /api/literature->200; expected 401",
+          "fix": "validate platform-IdP (Zitadel OIDC) bearer tokens on every route: issuer, audience, JWKS; 401 otherwise"
+        },
+        {
+          "adr": "ADR-0010",
+          "source": "content",
+          "evidence_class": "observed",
+          "workload": "commons-grid-dynamics-666d597b47-v9z2z",
+          "decision_broken": "frontend calls the backend without authenticating",
+          "observed": "1 fetch/XHR call sites, 0 OIDC/bearer markers in served code",
+          "fix": "authorization-code + PKCE against the platform IdP; send Authorization: Bearer on every API call"
+        }
+      ]
+    },
+    {
+      "id": "ADR-0011",
+      "title": "No plaintext on the wire",
+      "verified_by": "Pixie http_events/pgsql_events encrypted=0 (+ static Service/Ingress)",
+      "status": "VIOLATED",
+      "violations": 16,
+      "findings": [
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-api-f84dcb449-dtv2w",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET / -> commons-grid-api-f84dcb449-dtv2w:8000 from 10.42.2.156 (1 req, encrypted=0, status 404)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-api-f84dcb449-dtv2w",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api/presets -> commons-grid-api-f84dcb449-dtv2w:8000 from 10.42.0.241 (1 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-dynamics-666d597b47-v9z2z",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api/presets -> commons-grid-dynamics-666d597b47-v9z2z:8080 from 10.42.2.156 (1 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-api-f84dcb449-dtv2w",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api/constants -> commons-grid-api-f84dcb449-dtv2w:8000 from 10.42.0.241 (1 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-api-f84dcb449-dtv2w",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api/packages -> commons-grid-api-f84dcb449-dtv2w:8000 from 10.42.0.241 (1 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-dynamics-666d597b47-v9z2z",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api/literature -> commons-grid-dynamics-666d597b47-v9z2z:8080 from 10.42.2.156 (1 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-dynamics-666d597b47-v9z2z",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api/state -> commons-grid-dynamics-666d597b47-v9z2z:8080 from 10.42.2.156 (1 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-dynamics-666d597b47-v9z2z",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api.js -> commons-grid-dynamics-666d597b47-v9z2z:8080 from 10.42.2.156 (3 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-dynamics-666d597b47-v9z2z",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api/constants -> commons-grid-dynamics-666d597b47-v9z2z:8080 from 10.42.2.156 (1 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-api-f84dcb449-dtv2w",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api/abuses -> commons-grid-api-f84dcb449-dtv2w:8000 from 10.42.0.241 (1 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-dynamics-666d597b47-v9z2z",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api/packages -> commons-grid-dynamics-666d597b47-v9z2z:8080 from 10.42.2.156 (1 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-dynamics-666d597b47-v9z2z",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api/abuses -> commons-grid-dynamics-666d597b47-v9z2z:8080 from 10.42.2.156 (1 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-dynamics-666d597b47-v9z2z",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /ui.js -> commons-grid-dynamics-666d597b47-v9z2z:8080 from 10.42.2.156 (3 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-api-f84dcb449-dtv2w",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api/literature -> commons-grid-api-f84dcb449-dtv2w:8000 from 10.42.0.241 (1 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-dynamics-666d597b47-v9z2z",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /charts.js -> commons-grid-dynamics-666d597b47-v9z2z:8080 from 10.42.2.156 (3 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        },
+        {
+          "adr": "ADR-0011",
+          "source": "pixie",
+          "evidence_class": "observed",
+          "workload": "commons-grid-api-f84dcb449-dtv2w",
+          "decision_broken": "plaintext on the wire",
+          "observed": "http GET /api/state -> commons-grid-api-f84dcb449-dtv2w:8000 from 10.42.0.241 (1 req, encrypted=0, status 200)",
+          "fix": "serve TLS from a platform-issued certificate (cert-manager); clients verify; postgres ssl=on hostssl-only",
+          "table": "forensic_db.http_events"
+        }
+      ]
+    },
+    {
+      "id": "ADR-0012",
+      "title": "Metrics on a dedicated port, scraped only by the platform",
+      "verified_by": "live probe /metrics + static port named metrics + http_events",
+      "status": "VIOLATED",
+      "violations": 2,
+      "findings": [
+        {
+          "adr": "ADR-0012",
+          "source": "static",
+          "evidence_class": "declared",
+          "workload": "commons-grid-api",
+          "decision_broken": "no dedicated metrics port",
+          "observed": "containerPorts named [None]; none named metrics",
+          "fix": "expose metrics on a second containerPort named metrics; add a ServiceMonitor/PodMonitor"
+        },
+        {
+          "adr": "ADR-0012",
+          "source": "static",
+          "evidence_class": "declared",
+          "workload": "commons-grid-db",
+          "decision_broken": "no dedicated metrics port",
+          "observed": "containerPorts named [None]; none named metrics",
+          "fix": "expose metrics on a second containerPort named metrics; add a ServiceMonitor/PodMonitor"
+        }
+      ]
+    },
+    {
+      "id": "ADR-0013",
+      "title": "Every workload declares its envelope: resources, probes, securityContext",
+      "verified_by": "static C-0004/9/50/268-271, C-0018/56, C-0055/210/211",
+      "status": "VIOLATED",
+      "violations": 3,
+      "findings": [
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Apply Security Context to Your Pods and Containers",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.securityContext.fsGroupChangePolicy",
+          "value": "Always",
+          "agent_can_apply": true,
+          "needs_decision": false,
+          "control": "C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.securityContext.fsGroupChangePolicy = Always"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Apply Security Context to Your Pods and Containers",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.containers[*].securityContext.seLinuxOptions",
+          "value": null,
+          "agent_can_apply": false,
+          "needs_decision": true,
+          "control": "C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-db",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0211 failed on 3 resource(s): commons-grid-api, commons-grid-db, commons-grid-dynamics",
+          "fix": "set spec.template.spec.containers[*].securityContext.seLinuxOptions = <choose a value>"
+        },
+        {
+          "adr": "ADR-0013",
+          "decision_broken": "Apply Security Context to Your Pods and Containers",
+          "source": "static",
+          "evidence_class": "declared",
+          "severity": "High",
+          "action": "set",
+          "path": "spec.template.spec.securityContext.fsGroup",
+          "value": null,
+          "agent_can_apply": false,
+          "needs_decision": true,
+          "control": "C-0211",
+          "affected": [
+            "commons-grid-api",
+            "commons-grid-dynamics"
+          ],
+          "observed": "C-0211 failed on 2 resource(s): commons-grid-api, commons-grid-dynamics",
+          "fix": "set spec.template.spec.securityContext.fsGroup = <choose a value>"
+        }
+      ]
+    },
+    {
+      "id": "ADR-0014",
+      "title": "Images are pinned by digest, signed; no latest",
+      "verified_by": "static image string (+ C-0236/C-0237)",
+      "status": "COMPLIANT",
+      "violations": 0,
+      "findings": []
+    },
+    {
+      "id": "ADR-0015",
+      "title": "Ingress is the platform's: no NodePort/hostPort, NetworkPolicy present",
+      "verified_by": "static Service type, hostPort, netpol count (+ C-0030/C-0260/C-0044)",
+      "status": "VIOLATED",
+      "violations": 1,
+      "findings": [
+        {
+          "adr": "ADR-0015",
+          "source": "static",
+          "evidence_class": "declared",
+          "workload": "commons-grid",
+          "decision_broken": "no NetworkPolicy in the namespace",
+          "observed": "3 running pods, 0 NetworkPolicy objects",
+          "fix": "default-deny ingress+egress; allow ingress-controller->frontend, frontend->backend, backend->database, backend->IdP, monitoring->metrics, all->DNS"
+        }
+      ]
+    }
+  ],
+  "architecture": [
+    {
+      "pod": "commons-grid-api-f84dcb449-dtv2w",
+      "verdict": "CONSISTENT_WITH_TIER",
+      "classification": {
+        "tier": "backend",
+        "images": [
+          "docker.io/library/node:latest@sha256:a98e6fda54fdbb22d4238054cca9a2a113bcd1191c09193a535aae22f400aa8e"
+        ],
+        "ports": [
+          8000
+        ],
+        "matched_by": "image: tier-by-image-backend",
+        "custom_image": false
+      },
+      "content": {
+        "error": "HTTP Error 404: Not Found"
+      },
+      "behaviour": {
+        "rows": 107,
+        "rules": [
+          "R0001",
+          "R0002",
+          "R0012"
+        ],
+        "egress_events": 0,
+        "egress_peers": [],
+        "unexpected_opens": [
+          "/proc/sys/vm/overcommit_memory",
+          "/usr/lib/x86_64-linux-gnu/libatomic.so.1.2.0",
+          "/usr/lib/x86_64-linux-gnu/libdl.so.2",
+          "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
+          "/usr/lib/x86_64-linux-gnu/libpthread.so.0",
+          "/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33"
+        ]
+      },
+      "reasons": [
+        "the container read files the tier-backend baseline does not declare (R0002): ['/proc/sys/vm/overcommit_memory', '/usr/lib/x86_64-linux-gnu/libatomic.so.1.2.0', '/usr/lib/x86_64-linux-gnu/libdl.so.2']"
+      ],
+      "recommendations": []
+    },
+    {
+      "pod": "commons-grid-db-764c5fb86d-srpc9",
+      "verdict": "CONSISTENT_WITH_TIER",
+      "classification": {
+        "tier": "database",
+        "images": [
+          "docker.io/library/redis:latest@sha256:97ec88159e6d7cfb5ddef9015386087d58a912de80112f06ebdfa78fa5989901"
+        ],
+        "ports": [
+          6379
+        ],
+        "matched_by": "image: tier-by-image-database",
+        "custom_image": false
+      },
+      "content": {
+        "error": "Remote end closed connection without response"
+      },
+      "behaviour": {
+        "rows": 1458,
+        "rules": [
+          "R0001",
+          "R0002",
+          "R0004",
+          "R0012"
+        ],
+        "egress_events": 0,
+        "egress_peers": [],
+        "unexpected_opens": [
+          "/proc/1005/cgroup",
+          "/proc/1005/mountinfo",
+          "/proc/1005/setgroups",
+          "/proc/1011/cgroup",
+          "/proc/1011/mountinfo",
+          "/proc/1011/setgroups",
+          "/proc/1017/cgroup",
+          "/proc/1017/mountinfo",
+          "/proc/1017/setgroups",
+          "/proc/1023/cgroup"
+        ]
+      },
+      "reasons": [
+        "the container read files the tier-database baseline does not declare (R0002): ['/proc/1005/cgroup', '/proc/1005/mountinfo', '/proc/1005/setgroups']"
+      ],
+      "recommendations": []
+    },
+    {
+      "pod": "commons-grid-dynamics-666d597b47-v9z2z",
+      "verdict": "CONSISTENT_WITH_TIER",
+      "classification": {
+        "tier": "frontend",
+        "images": [
+          "docker.io/nginxinc/nginx-unprivileged:latest@sha256:09b0d3eda2aa592d2487f284519419015cab010d7df16cd0fe224b585fc60eb6"
+        ],
+        "ports": [
+          8080
+        ],
+        "matched_by": "image: tier-by-image-frontend",
+        "custom_image": false
+      },
+      "content": {
+        "title": null,
+        "bytes": 160,
+        "inline_js_bytes": 80732,
+        "external_scripts": [
+          "api.js",
+          "charts.js",
+          "ui.js"
+        ],
+        "script_bytes": {
+          "api.js": 3153,
+          "charts.js": 16723,
+          "ui.js": 60856
+        },
+        "functions": 59,
+        "function_sample": [
+          "ticks",
+          "line",
+          "legend",
+          "stacked",
+          "heatmap",
+          "sankey",
+          "ternary",
+          "histogram",
+          "applyPreset",
+          "invalidate",
+          "run",
+          "runBatch"
+        ],
+        "defined_solvers": [],
+        "datasets": [],
+        "markers": {
+          "numeric_solvers": 20,
+          "statistics": 3,
+          "simulation": 17,
+          "money": 83,
+          "client_state": 0,
+          "backend_calls": 1,
+          "auth": 0
+        },
+        "api_paths": [
+          "/api/abuses",
+          "/api/constants",
+          "/api/ensemble",
+          "/api/literature",
+          "/api/ode/dp45",
+          "/api/ode/integrate",
+          "/api/ode/modelAFixedPoints",
+          "/api/ode/modelAThresholds",
+          "/api/ode/modelBFixedPoint",
+          "/api/ode/modelBParts",
+          "/api/ode/modelBPartsMany",
+          "/api/ode/modelBThresholds",
+          "/api/ode/rk4",
+          "/api/ode/sample",
+          "/api/ode/sccFraction",
+          "/api/ode/sccSample",
+          "/api/packages",
+          "/api/presets",
+          "/api/simulate",
+          "/api/state",
+          "/api/summarise",
+          "/api/sweep2D",
+          "/api/sweepRun"
+        ]
+      },
+      "behaviour": {
+        "rows": 592,
+        "rules": [
+          "R0002",
+          "R0011",
+          "R0012"
+        ],
+        "egress_events": 24,
+        "egress_peers": [
+          "10.42.1.184:8000"
+        ],
+        "unexpected_opens": [
+          "/usr/share/nginx/html/..2026_10_23_02_14_56.530988482/api.js",
+          "/usr/share/nginx/html/..2026_10_23_02_14_56.530988482/charts.js",
+          "/usr/share/nginx/html/..2026_10_23_02_14_56.530988482/index.html",
+          "/usr/share/nginx/html/..2026_10_23_02_14_56.530988482/ui.js"
+        ]
+      },
+      "reasons": [
+        "no authentication anywhere: no auth markers in the code, no Authorization handling",
+        "the container read files the tier-frontend baseline does not declare (R0002): ['/usr/share/nginx/html/..2026_10_23_02_14_56.530988482/api.js', '/usr/share/nginx/html/..2026_10_23_02_14_56.530988482/charts.js', '/usr/share/nginx/html/..2026_10_23_02_14_56.530988482/index.html']",
+        "egress observed to ['10.42.1.184:8000']"
+      ],
+      "recommendations": [
+        {
+          "what": "add authentication",
+          "how": "put authN on the backend API (OIDC/JWT bearer on every request); the frontend never holds credentials (ADR-0003); unauthenticated requests get 401 \u2014 then the request trace carries the evidence"
+        }
+      ]
+    }
+  ],
+  "workloads": [
+    {
+      "pod": "commons-grid-api-f84dcb449-dtv2w",
+      "ip": "10.42.1.184",
+      "tier": "backend"
+    },
+    {
+      "pod": "commons-grid-db-764c5fb86d-srpc9",
+      "ip": "10.42.0.75",
+      "tier": "database"
+    },
+    {
+      "pod": "commons-grid-dynamics-666d597b47-v9z2z",
+      "ip": "10.42.0.241",
+      "tier": "frontend"
+    }
+  ],
+  "broken_before_anything_else": []
+}
