@@ -1,0 +1,220 @@
+# The prose of every ADR (decision, why, scope). The checks live in adrs.yaml; adr_docs.py
+# renders adr/NNNN-*.md and adr/README.md from the two files, so text and check cannot drift.
+# Decision text names no application, no product internals and no cluster specifics: it is
+# written in the labels and objects a platform engineer already uses.
+
+ADR-0001:
+  status: accepted
+  applies_to: every workload carrying app.kubernetes.io/tier
+  decision: >-
+    A workload labelled tier=frontend opens connections only to tier=backend and to DNS.
+    A workload labelled tier=database accepts connections only from tier=backend and from its
+    own tier. Tiers reference each other by label selector, never by Service or pod name.
+  why: >-
+    Tier skipping — the presentation tier querying the data store directly — is the first thing a
+    generated application does, and it defeats every control the backend tier carries (authentication,
+    authorisation, audit). Label selectors survive renames, rewrites and language changes, so the
+    decision does not have to be re-stated per application. The runtime sensor sees the connection
+    from both ends (the sender's profile and the receiver's), so a single stray probe cannot be
+    mistaken for a tier skip.
+  notes: >-
+    Network rules are silent while a pod is younger than the warm-up (measured: nothing before
+    ~150 s, reliable from ~210 s). A clean result on a young pod is not a pass; the engine reports
+    NOT_OBSERVED until every pod of the tier is past warm-up and the allowed edge was seen.
+
+ADR-0002:
+  status: accepted
+  applies_to: tier=database, tier=middleware
+  decision: >-
+    tier=database egress is limited to DNS and its own tier's replication ports. tier=middleware
+    may additionally reach the database tier and its own cluster ports. Neither reaches anything
+    outside the cluster. Backups, telemetry and extension downloads run as separate workloads
+    labelled tier=backend.
+  why: >-
+    A data store that initiates outbound connections has the shape of an exfiltration, a plugin
+    download or a misplaced batch job. For this tier a single observed egress is already conclusive:
+    the receiver is outside the cluster and cannot corroborate, and it does not need to.
+
+ADR-0003:
+  status: accepted
+  applies_to: tier=frontend, tier=database, tier=middleware
+  decision: >-
+    Only tier=backend may mount and read the ServiceAccount token. Every other tier sets
+    automountServiceAccountToken: false, and only the backend tier profile lists the token path.
+  why: >-
+    The presentation tier is the most exposed surface and has no business with the cluster API. A
+    token it never mounted cannot be stolen through it. The static check lists every pod that could
+    read the token; the runtime check lists the ones that did — the shorter, more urgent list.
+
+ADR-0004:
+  status: accepted
+  applies_to: every tier
+  decision: >-
+    No package manager and no general-purpose fetch tool executes inside a running container.
+    Every dependency is resolved at build time and baked into the image; a running container
+    needs no package repository and no external download.
+  why: >-
+    Installing at runtime makes the running image unknowable and gives an attacker the tooling
+    they would otherwise have to bring. The process rule is the noisiest of the set (lowest severity):
+    it fires on any binary the profile does not list, so the finding names the binary and the
+    engine discounts processes started by exec probes and by the tracer.
+
+ADR-0005:
+  status: accepted
+  applies_to: every pod in an application namespace
+  decision: >-
+    Admission assigns a tier from the image name and binds the pod to that tier's profile. A pod
+    that declares no tier and whose image is not recognised is labelled tier=unclassified and bound
+    to a deliberately narrow profile: DNS egress only, no ingress. Quarantine, not exemption — an
+    unclassified workload that does anything on the network produces a finding whose fix is
+    "tell the platform what this is".
+  why: >-
+    A workload without a profile is unwatched, and unwatched looks exactly like clean. Admission is
+    a webhook, so the author cannot bypass it, and the classification is visible on the pod's labels
+    immediately. The profile attaches at container start; network enforcement needs the warm-up.
+  notes: >-
+    Alerts are not de-duplicated by the sensor; the engine collapses identical events and reports
+    the count. File rules fire well before network rules, so "some findings but no network findings"
+    is the signature of a container that is not warm yet, not of a clean posture.
+
+ADR-0006:
+  status: accepted
+  applies_to: every tier
+  decision: >-
+    Containers set runAsNonRoot: true, a numeric runAsUser, allowPrivilegeEscalation: false and a
+    read-only root filesystem. Where a rootless image variant exists, it is used.
+  why: >-
+    An image whose entrypoint starts as root and drops privileges uses capabilities on the way down;
+    the runtime sensor sees that as capability use against a profile that lists none. The manifest
+    fields are the declared half; the capability event is the observed half. A finding read from the
+    manifest ranks below one the sensor actually saw.
+
+ADR-0007:
+  status: accepted
+  applies_to: every ContainerProfile stored for an application namespace
+  decision: >-
+    No profile contains a wildcard entry at or above a path another rule protects: nothing directly
+    under /etc, /run, /var/run or at the root. Only named files and named per-engine directories.
+    The ServiceAccount token path appears only in the backend profile, written concretely.
+  why: >-
+    Generality in a profile is bought with detection: a wildcard above a protected path silently
+    disables the rule that watches it, and a suppressed rule produces exactly the silence a passing
+    check produces. No runtime evidence can confirm this ADR; the stored profile has to be read back
+    — the files on disk are not enough, because collapsing happens on write.
+
+ADR-0008:
+  status: proposed
+  applies_to: tier=frontend
+  decision: >-
+    A tier=frontend workload serves the shell of the application: markup, styling, static assets and
+    the client code needed to call a tier=backend API. Concretely: at most 50 KB of client code
+    (inline plus the scripts the page loads); no numerical-solver, simulation or statistics routines
+    defined in client code; no business datasets embedded in served assets; no application state in
+    browser storage; and at least one backend call, so the frontend→backend edge exists.
+  why: >-
+    The generated monolith ships the whole application as one page: engine, data and state in the
+    browser, no backend, no authentication and nothing to observe at runtime. The content probe
+    measures the page; the thresholds are the decision. A solver the page merely names (a route, a
+    tab label) is a call; only a solver the page defines counts.
+
+ADR-0009:
+  status: proposed
+  applies_to: every workload; the admission policy
+  decision: >-
+    The tier of a workload is declared by its author in the manifest. Admission validates a declared
+    tier and assigns one only for images it recognises; a container port is never evidence of a tier.
+    A workload with no declaration and an unrecognised image is tier=unclassified regardless of its port.
+  why: >-
+    A port fallback turned a monolith on port 80 into a trusted frontend with the lenient frontend
+    profile. A guessed tier shows up later as a profile mismatch, which is the wrong place to learn it.
+    The applied manifest (last-applied-configuration) is what tells declared from assigned.
+
+ADR-0010:
+  status: proposed
+  applies_to: tier=backend, tier=middleware; the tier=frontend client code that calls them
+  decision: >-
+    Every request to a tier=backend or tier=middleware endpoint carries a bearer token issued by the
+    platform identity provider, validated for issuer, audience, expiry and signature; a request
+    without a valid token is answered 401 before application code runs. Health endpoints and the
+    metrics port are the only exceptions. The frontend obtains the token through the provider's
+    browser flow and never holds a client secret.
+  why: >-
+    Authentication is platform-owned so that no application mints its own sessions. Probing without
+    a token, with a garbage token and with a platform-minted token covers the three failure modes:
+    open route, no signature check, wrong issuer/audience. Probing "/" alone proves nothing — an API
+    that 404s on "/" passes as if it authenticated — so the routes the page actually calls are probed.
+  notes: >-
+    On this platform the identity provider is Zitadel: issuer as published in its OIDC discovery
+    document, JWKS at /oauth/v2/keys, audience = the project id; the platform provisions the
+    per-namespace client (idp-client secret) the evaluator uses to mint a token.
+
+ADR-0011:
+  status: proposed
+  applies_to: every tier; every Service and Ingress
+  decision: >-
+    Anything that leaves a pod is TLS: browser→frontend (terminated at the platform ingress),
+    frontend→backend, backend→database, backend→identity provider, backend→external. Workloads consume
+    platform-issued certificates; they do not generate or commit their own. The data tier requires TLS
+    so that a plaintext client fails instead of silently downgrading.
+  why: >-
+    A bearer token on a plaintext wire is a token for everyone on the path. The wire tracer decodes
+    plaintext protocols and marks each captured request encrypted or not, per source, destination,
+    port and path; a kernel-TLS tap corroborates the encrypted side. Health probes and the
+    evaluator's own requests are discounted.
+  notes: >-
+    Wire rows are exported around runtime alerts only; an edge with no captured rows is NOT_OBSERVED,
+    not COMPLIANT. Drive the application before judging.
+
+ADR-0012:
+  status: proposed
+  applies_to: tier=backend, tier=middleware, tier=database
+  decision: >-
+    Every tier=backend, tier=middleware and tier=database workload exposes metrics on a separate
+    containerPort named metrics, reached only from the monitoring namespace. /metrics on the
+    application port answers 404. Metric labels carry no user-supplied values.
+  why: >-
+    Metrics on the application port are an unauthenticated read endpoint (ADR-0010 exempts them)
+    and the first place internals leak. A dedicated, named port is what a NetworkPolicy and a scrape
+    config can select.
+
+ADR-0013:
+  status: proposed
+  applies_to: every workload
+  decision: >-
+    Every container declares resources.requests and resources.limits for cpu and memory, a liveness
+    and a readiness probe (httpGet or tcpSocket, never exec), and a securityContext with
+    runAsNonRoot: true, non-zero runAsUser/runAsGroup, allowPrivilegeEscalation: false,
+    readOnlyRootFilesystem: true, capabilities.drop [ALL] and seccompProfile.type RuntimeDefault.
+    Writable paths are named emptyDir mounts.
+  why: >-
+    The envelope is what the scheduler, the profile and the incident responder rely on. Every field
+    is read from the pod spec; the same manifest default appears once per container, grouped by the
+    fix, not once per control. An exec probe enters the container through the runtime and shows up
+    as capability use and process launches that are the probe's, not the image's.
+
+ADR-0014:
+  status: proposed
+  applies_to: every workload
+  decision: >-
+    Every container image is referenced by digest (repo@sha256:…). latest, no tag and mutable tags
+    are rejected at admission. imagePullPolicy is IfNotPresent. Images are signed by the build that
+    produced them and verified at admission. A profile is bound to a digest: a new digest means a
+    new learn or an explicit profile bump, never a silent carry-over.
+  why: >-
+    A floating tag moves under a learned profile; the first symptom is a flood of file-access
+    alerts on a container nobody changed. The digest that actually ran is recorded on every runtime
+    event, so the drift is visible after the fact — the pin is what prevents it.
+
+ADR-0015:
+  status: proposed
+  applies_to: every Service, Ingress and NetworkPolicy
+  decision: >-
+    No NodePort, no LoadBalancer, no hostPort and no hostNetwork created by an application. Browser
+    traffic enters through the platform Ingress class, which terminates TLS and fronts only
+    tier=frontend Services. Every namespace carries a default-deny NetworkPolicy for ingress and
+    egress plus one allow per prescribed edge: ingress-controller→frontend, frontend→backend,
+    backend→database, backend→identity provider, monitoring→metrics ports, everyone→DNS.
+  why: >-
+    The network policy and the tier profile describe the same edges from two sides: the policy
+    blocks, the profile detects. Where they disagree, the narrower one is right and the other is a
+    finding. A workload that opens its own ingress bypasses the TLS termination and the policy.
