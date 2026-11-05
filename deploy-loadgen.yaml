@@ -71,6 +71,12 @@ data:
       post(data, 'sweep2D', '/api/sweep2D', { base: {}, xKey: 'audit', yKey: 'fine', nx: 3, ny: 3, seeds: [1, 2] });
       post(data, 'sweepRun', '/api/sweepRun', { P: { audit: 0.5, fine: 1000 }, seeds: [1, 2] });
     
+      // write a run to the database, then read it back and list runs
+      const runId = 'k6-' + __VU + '-' + __ITER;
+      post(data, 'save-run', '/api/state', { id: runId, data: { P: {}, when: Date.now() } });
+      get(data, 'load-run', '/api/state?id=' + runId);
+      get(data, 'list-runs', '/api/runs');
+    
       sleep(1);
     }
 ---

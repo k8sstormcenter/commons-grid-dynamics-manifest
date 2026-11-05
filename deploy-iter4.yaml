@@ -208,7 +208,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: ghcr.io/k8sstormcenter/commons-grid-dynamics:api-52f1fd6bf7aa24f13538e7fd70924cf95f884158@sha256:c3983f7750a41dc3899cd4e1a763570693b355a4e41336444445ef11e3b2fd2b
+          image: ghcr.io/k8sstormcenter/commons-grid-dynamics:api-fc6b4dbb35a7cd9f36c410a2bbd604aa39399c5f@sha256:bcc456f7ca055b81d8c23b87f7591f8cf0a2cce4ba1fbd86a690165df0ca886e
           imagePullPolicy: IfNotPresent
           env:
             - name: PORT
