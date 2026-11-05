@@ -502,21 +502,6 @@ spec:
         - protocol: TCP
           port: 6379
 ---
-# ---------- metrics scrape ----------
-apiVersion: monitoring.coreos.com/v1
-kind: PodMonitor
-metadata:
-  name: commons-grid-api
-  namespace: commons-grid
-  labels:
-    app.kubernetes.io/tier: backend
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/tier: backend
-  podMetricsEndpoints:
-    - port: metrics
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
