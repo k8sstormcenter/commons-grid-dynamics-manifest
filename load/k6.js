@@ -2,7 +2,7 @@ import http from 'k6/http';
 import { check } from 'k6';
 import encoding from 'k6/encoding';
 
-const BASE_URL = __ENV.BASE_URL || 'http://commons-grid-dynamics.commons-grid.svc';
+const BASE_URL = __ENV.BASE_URL || 'https://commons-grid-dynamics.commons-grid.svc';
 const DURATION = __ENV.DURATION || '60s';
 
 // Identity: the load namespace's own IdP client (client_credentials). Values come from the
