@@ -1,4 +1,4 @@
-# ADR-0005 — Every workload declares its tier; an undeclared one is quarantined
+# ADR-0005 — Every workload is classified and bound to its tier profile; an unrecognised one is quarantined
 
 **Status:** accepted  
 **Applies to:** every pod in an application namespace  

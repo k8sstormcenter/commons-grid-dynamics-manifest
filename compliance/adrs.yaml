@@ -167,8 +167,8 @@ adrs:
         what: all pods governed and past warm-up
 
   - id: ADR-0005
-    summary: Every workload declares its tier
-    title: Every workload declares its tier; an undeclared one is quarantined
+    summary: Every workload is classified and bound
+    title: Every workload is classified and bound to its tier profile; an unrecognised one is quarantined
     enforced_by: [kyverno.mutate, clone-tier-sbobs]
     violated:
       - source: pod
