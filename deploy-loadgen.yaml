@@ -1,0 +1,140 @@
+# Commons Grid Dynamics - continuous k6 load driver (platform deploys this in commons-grid-load)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: commons-grid-load
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: commons-grid-k6
+  namespace: commons-grid-load
+data:
+  k6.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+    
+    const BASE = __ENV.BASE_URL || 'http://commons-grid-dynamics.commons-grid.svc';
+    const DURATION = __ENV.DURATION || '60s';
+    
+    // the API needs a token now; a load driver logs in with client credentials
+    const CLIENT_ID = __ENV.CLIENT_ID || '';
+    const CLIENT_SECRET = __ENV.CLIENT_SECRET || '';
+    const PROJECT_ID = __ENV.PROJECT_ID || '';
+    const TOKEN_ENDPOINT = __ENV.TOKEN_ENDPOINT || '';
+    
+    export const options = {
+      scenarios: { adr_driver: { executor: 'constant-vus', vus: 2, duration: DURATION } },
+    };
+    
+    export function setup() {
+      if (!CLIENT_ID || !CLIENT_SECRET || !TOKEN_ENDPOINT) return { token: '' };
+      const body = {
+        grant_type: 'client_credentials',
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        scope: 'openid urn:zitadel:iam:org:project:id:' + PROJECT_ID + ':aud',
+      };
+      const r = http.post(TOKEN_ENDPOINT, body, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+      let token = '';
+      try { token = JSON.parse(r.body).access_token || ''; } catch (e) { token = ''; }
+      return { token };
+    }
+    
+    function hdr(data, useCase, json) {
+      const h = { 'User-Agent': 'adr-driver/k6', 'X-Test-Case': useCase };
+      if (json) h['Content-Type'] = 'application/json';
+      if (data.token) h['Authorization'] = 'Bearer ' + data.token;
+      return { headers: h };
+    }
+    
+    function get(data, useCase, path) {
+      const r = http.get(BASE + path, hdr(data, useCase, false));
+      check(r, { [useCase + ' ok']: x => x.status === 200 });
+      return r;
+    }
+    function post(data, useCase, path, body) {
+      const r = http.post(BASE + path, JSON.stringify(body), hdr(data, useCase, true));
+      check(r, { [useCase + ' ok']: x => x.status === 200 });
+      return r;
+    }
+    
+    export default function (data) {
+      get(data, 'open-shell', '/');
+      get(data, 'constants', '/api/constants');
+      get(data, 'presets', '/api/presets');
+      get(data, 'abuses', '/api/abuses');
+      get(data, 'packages', '/api/packages');
+      post(data, 'simulate', '/api/simulate', { P: {} });
+    
+      const ens = post(data, 'ensemble', '/api/ensemble', { P: {}, seeds: [1, 2, 3] });
+      let runs = [];
+      try { runs = JSON.parse(ens.body); if (!Array.isArray(runs)) runs = []; } catch (e) { runs = []; }
+      // fire every use case unconditionally so they all show on the wire
+      post(data, 'summarise', '/api/summarise', { runs });
+      post(data, 'sweep2D', '/api/sweep2D', { base: {}, xKey: 'audit', yKey: 'fine', nx: 3, ny: 3, seeds: [1, 2] });
+      post(data, 'sweepRun', '/api/sweepRun', { P: { audit: 0.5, fine: 1000 }, seeds: [1, 2] });
+    
+      sleep(1);
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commons-grid-loadgen
+  namespace: commons-grid-load
+  labels:
+    app: commons-grid-loadgen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commons-grid-loadgen
+  template:
+    metadata:
+      labels:
+        app: commons-grid-loadgen
+    spec:
+      containers:
+        - name: k6
+          image: docker.io/grafana/k6:latest@sha256:3e4186aea62e11a45560bfc51e19eeafe82fc07ce069c78aff44b7ff893d9a5e
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - while true; do k6 run /scripts/k6.js; sleep 5; done
+          env:
+            - name: BASE_URL
+              value: http://commons-grid-dynamics.commons-grid.svc
+            - name: DURATION
+              value: "60s"
+            - name: CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: idp-client
+                  key: client_id
+                  optional: true
+            - name: CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: idp-client
+                  key: client_secret
+                  optional: true
+            - name: TOKEN_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: idp-client
+                  key: token_endpoint
+                  optional: true
+            - name: PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: idp-client
+                  key: project_id
+                  optional: true
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+      volumes:
+        - name: scripts
+          configMap:
+            name: commons-grid-k6

@@ -4,59 +4,63 @@ import { check, sleep } from 'k6';
 const BASE = __ENV.BASE_URL || 'http://commons-grid-dynamics.commons-grid.svc';
 const DURATION = __ENV.DURATION || '60s';
 
+// the API needs a token now; a load driver logs in with client credentials
+const CLIENT_ID = __ENV.CLIENT_ID || '';
+const CLIENT_SECRET = __ENV.CLIENT_SECRET || '';
+const PROJECT_ID = __ENV.PROJECT_ID || '';
+const TOKEN_ENDPOINT = __ENV.TOKEN_ENDPOINT || '';
+
 export const options = {
-  scenarios: {
-    adr_driver: { executor: 'constant-vus', vus: 2, duration: DURATION },
-  },
+  scenarios: { adr_driver: { executor: 'constant-vus', vus: 2, duration: DURATION } },
 };
 
-function hdr(useCase, json) {
+export function setup() {
+  if (!CLIENT_ID || !CLIENT_SECRET || !TOKEN_ENDPOINT) return { token: '' };
+  const body = {
+    grant_type: 'client_credentials',
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+    scope: 'openid urn:zitadel:iam:org:project:id:' + PROJECT_ID + ':aud',
+  };
+  const r = http.post(TOKEN_ENDPOINT, body, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+  let token = '';
+  try { token = JSON.parse(r.body).access_token || ''; } catch (e) { token = ''; }
+  return { token };
+}
+
+function hdr(data, useCase, json) {
   const h = { 'User-Agent': 'adr-driver/k6', 'X-Test-Case': useCase };
   if (json) h['Content-Type'] = 'application/json';
+  if (data.token) h['Authorization'] = 'Bearer ' + data.token;
   return { headers: h };
 }
 
-function get(useCase, path) {
-  const r = http.get(BASE + path, hdr(useCase, false));
-  check(r, { [useCase + ' 200']: x => x.status === 200 });
+function get(data, useCase, path) {
+  const r = http.get(BASE + path, hdr(data, useCase, false));
+  check(r, { [useCase + ' ok']: x => x.status === 200 });
+  return r;
+}
+function post(data, useCase, path, body) {
+  const r = http.post(BASE + path, JSON.stringify(body), hdr(data, useCase, true));
+  check(r, { [useCase + ' ok']: x => x.status === 200 });
   return r;
 }
 
-function post(useCase, path, body) {
-  const r = http.post(BASE + path, JSON.stringify(body), hdr(useCase, true));
-  check(r, { [useCase + ' 200']: x => x.status === 200 });
-  return r;
-}
+export default function (data) {
+  get(data, 'open-shell', '/');
+  get(data, 'constants', '/api/constants');
+  get(data, 'presets', '/api/presets');
+  get(data, 'abuses', '/api/abuses');
+  get(data, 'packages', '/api/packages');
+  post(data, 'simulate', '/api/simulate', { P: {} });
 
-export default function () {
-  // use case: open the simulator shell
-  get('open-shell', '/');
-
-  // use case: load constants and reference data
-  const c = get('constants', '/api/constants');
-  get('presets', '/api/presets');
-  get('abuses', '/api/abuses');
-  get('packages', '/api/packages');
-
-  // use case: run a single simulation with default parameters
-  post('simulate', '/api/simulate', { P: {} });
-
-  // use case: run an ensemble over several seeds
-  const seeds = [1, 2, 3];
-  const ens = post('ensemble', '/api/ensemble', { P: {}, seeds });
+  const ens = post(data, 'ensemble', '/api/ensemble', { P: {}, seeds: [1, 2, 3] });
   let runs = [];
-  try { runs = JSON.parse(ens.body); } catch (e) { runs = []; }
-
-  // use case: summarise an ensemble
-  if (runs.length) post('summarise', '/api/summarise', { runs });
-
-  // use case: sweep two levers across a grid
-  const sw = post('sweep2D', '/api/sweep2D', { base: {}, xKey: 'audit', yKey: 'fine', nx: 3, ny: 3, seeds: [1, 2] });
-  let tasks = [];
-  try { tasks = (JSON.parse(sw.body).tasks) || []; } catch (e) { tasks = []; }
-
-  // use case: run one cell of a sweep
-  if (tasks.length) post('sweepRun', '/api/sweepRun', { P: tasks[0].P, seeds: [1, 2] });
+  try { runs = JSON.parse(ens.body); if (!Array.isArray(runs)) runs = []; } catch (e) { runs = []; }
+  // fire every use case unconditionally so they all show on the wire
+  post(data, 'summarise', '/api/summarise', { runs });
+  post(data, 'sweep2D', '/api/sweep2D', { base: {}, xKey: 'audit', yKey: 'fine', nx: 3, ny: 3, seeds: [1, 2] });
+  post(data, 'sweepRun', '/api/sweepRun', { P: { audit: 0.5, fine: 1000 }, seeds: [1, 2] });
 
   sleep(1);
 }
