@@ -262,14 +262,14 @@ adrs:
 
   - id: ADR-0007
     summary: Detection cannot be switched off by a profile
-    title: A profile may not wildcard above a path another rule protects
+    title: A profile wildcard never covers a protected path that the profile does not also subtract
     enforced_by: [sbob.authoring]
     violated:
       - source: profile
         wildcards: {gt: 0}
-        broken: profile wildcards above a protected path
-        fix: regenerate the profile (bobctl) listing the named files the application actually reads
-        show: [wildcard_paths]
+        broken: a profile wildcard covers a protected path that the profile does not subtract
+        fix: compose the tier profile with the subtract fragments (sbobs/compose.sh), or list named files instead of the wildcard
+        show: [wildcard_paths, unsubtracted_paths]
       - source: profile
         tier: backend
         token_concrete: false

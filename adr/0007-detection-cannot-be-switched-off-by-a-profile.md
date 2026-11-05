@@ -1,4 +1,4 @@
-# ADR-0007 — A profile may not wildcard above a path another rule protects
+# ADR-0007 — A profile wildcard never covers a protected path that the profile does not also subtract
 
 **Status:** accepted  
 **Applies to:** every ContainerProfile stored for an application namespace  
@@ -6,11 +6,11 @@
 
 ## Decision
 
-No profile contains a wildcard entry at or above a path another rule protects: nothing directly under /etc, /run, /var/run or at the root. Only named files and named per-engine directories. The ServiceAccount token path appears only in the backend profile, written concretely.
+Tier profiles are generic: the platform cannot know what an application will run, so a tier profile may allow any process and any file. What it may not do is hide the paths other rules watch. Every wildcard that covers a protected path (password and sudo files, SSH keys, process environments, and the ServiceAccount token outside the backend tier) comes with a subtract entry for that path, so reading it still alerts.
 
 ## Why
 
-Generality in a profile is bought with detection: a wildcard above a protected path silently disables the rule that watches it, and a suppressed rule produces exactly the silence a passing check produces. No runtime evidence can confirm this ADR; the stored profile has to be read back — the files on disk are not enough, because collapsing happens on write.
+Generality in a profile is bought with detection: a wildcard above a protected path silently disables the rule that watches it, and a suppressed rule produces exactly the silence a passing check produces. A subtract entry keeps the rule alive under the wildcard. No runtime evidence can confirm this ADR; the stored profile has to be read back, because collapsing happens on write.
 
 ## How it is checked
 
@@ -22,12 +22,12 @@ Generality in a profile is bought with detection: a wildcard above a protected p
 
 Each matching event is a finding with the observed event, the decision it broke and the fix; discounted events stay as notes (`counted=false`).
 
-* **profile wildcards above a protected path** — a stored ContainerProfile — wildcard entries > 0.
+* **a profile wildcard covers a protected path that the profile does not subtract** — a stored ContainerProfile — wildcards over unsubtracted protected paths > 0.
 * **the backend's ServiceAccount token allowance is not concrete, so R0006 cannot honour it** — a stored ContainerProfile — tier backend, token path not concrete.
 
 ## How to fix
 
-* profile wildcards above a protected path: regenerate the profile (bobctl) listing the named files the application actually reads
+* a profile wildcard covers a protected path that the profile does not subtract: compose the tier profile with the subtract fragments (sbobs/compose.sh), or list named files instead of the wildcard
 * the backend's ServiceAccount token allowance is not concrete, so R0006 cannot honour it: list /var/run/secrets/kubernetes.io/serviceaccount/token literally
 
 ## Reproduce without the tooling
@@ -41,7 +41,7 @@ kubectl -n <ns> get containerprofiles.spdx.softwarecomposition.kubescape.io <nam
 
 | source | key | decision broken |
 |---|---|---|
-| profile | wildcard entries > 0 | profile wildcards above a protected path |
+| profile | wildcards over unsubtracted protected paths > 0 | a profile wildcard covers a protected path that the profile does not subtract |
 | profile | tier backend, token path not concrete | the backend's ServiceAccount token allowance is not concrete, so R0006 cannot honour it |
 
 *Generated from `compliance/adrs.yaml` and `compliance/adr_text.yaml` by `compliance/adr_docs.py`. Edit those, not this file.*

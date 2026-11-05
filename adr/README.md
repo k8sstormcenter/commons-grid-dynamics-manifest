@@ -43,7 +43,7 @@ Every ADR has the same sections: Decision · Why · How it is checked · What a 
 | [0004](0004-images-immutable-at-runtime.md) | Images immutable at runtime | Images are immutable at runtime; nothing is installed after build | kyverno.validate, sbob.execs |
 | [0005](0005-every-workload-is-classified-and-bound.md) | Every workload is classified and bound | Every workload is classified and bound to its tier profile; an unrecognised one is quarantined | kyverno.mutate, clone-tier-sbobs |
 | [0006](0006-run-as-non-root.md) | Run as non-root | Workloads run as non-root | kyverno.validate, sbob.capabilities |
-| [0007](0007-detection-cannot-be-switched-off-by-a-profile.md) | Detection cannot be switched off by a profile | A profile may not wildcard above a path another rule protects | sbob.authoring |
+| [0007](0007-detection-cannot-be-switched-off-by-a-profile.md) | Detection cannot be switched off by a profile | A profile wildcard never covers a protected path that the profile does not also subtract | sbob.authoring |
 | [0010](0010-requests-authenticated-by-the-platform-idp.md) | Requests authenticated by the platform IdP | Every backend request is authenticated by the platform identity provider | app-code, idp-client |
 | [0011](0011-no-plaintext-on-the-wire.md) | No plaintext on the wire | No plaintext on the wire | platform-ingress, cert-manager, app-config |
 | [0012](0012-metrics-on-a-dedicated-port.md) | Metrics on a dedicated port | Metrics are served on a dedicated port, scraped only by the platform | kyverno.validate, netpol |

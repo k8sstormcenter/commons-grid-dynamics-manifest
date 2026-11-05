@@ -1,158 +1,467 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# TIER 1 — FRONTEND  (static site, SPA server, reverse proxy, BFF)
+# Tier base: frontend - serves the browser: static files, an SPA server, a reverse proxy.
 #
-# Broad enough for any stack (nginx / Caddy / Node / Deno / httpd / Go binary),
-# deliberately tight on the things that mean "you built this wrong".
-#
-# Bind it with:  kubescape.io/user-defined-profile: tier-frontend
-#
-# WHAT THIS TIER SAYS **NO** TO  (each omission is a deliberate signal)
-#   • ANY Linux capability            → a frontend never needs one. Stock images
-#                                       (nginx:latest) ask for CAP_SYS_ADMIN +
-#                                       CAP_SETUID because their entrypoint runs
-#                                       as root and drops privileges. If R0004
-#                                       fires, switch to the *-unprivileged /
-#                                       rootless / distroless variant.
-#   • DIRECT DATABASE EGRESS          → 5432/3306/27017/6379/9042/... are NOT in
-#                                       the egress list. A frontend reaching a DB
-#                                       skips the backend tier entirely. This is
-#                                       the single most valuable alert here.
-#   • package managers at runtime     → npm/pip/apk/apt are not in execs. Installing
-#                                       at container start = unpinned supply chain.
-#   • curl / wget / nc                → a frontend serves, it does not fetch.
-#   • /etc/⋯ wildcard                 → only named /etc files are allowed, so a
-#                                       sensitive-file read still trips R0010.
-#                                       (A wildcard here would SUPPRESS that rule.)
-#   • serviceaccount token            → a frontend has no business calling the
-#                                       Kubernetes API (trips R0006).
-# ─────────────────────────────────────────────────────────────────────────────
+# Deliberately generic. The platform cannot know which application a team will ship,
+# so this allows every process and every file a workload of this tier might use.
+# What it still says no to:
+#   - the network edges of the tier (who it may call, who may call it)
+#   - capabilities outside CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH, CAP_NET_ADMIN, CAP_NET_BIND_SERVICE
+#   - everything listed in the subtract fragments composed on top (see compose.sh)
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
 kind: ContainerProfile
 metadata:
-  name: tier-frontend
-  namespace: sbob-library
-  labels:
-    generate.kyverno.io/clone-source: ''
   annotations:
     kubescape.io/managed-by: User
+  labels:
+    signature.kubescape.io/generator: bobctl
+    signature.kubescape.io/generator-ref: 330c839
+    signature.kubescape.io/matcher-version: a6dba81c26bcf0d7
+  name: tier-frontend
+  namespace: sbob-library
 spec:
-  # No capabilities. Intentional. See header.
-  capabilities: []
-
+  architectures:
+    - amd64
+  capabilities:
+    - CAP_DAC_OVERRIDE
+    - CAP_DAC_READ_SEARCH
+    - CAP_NET_ADMIN
+    - CAP_NET_BIND_SERVICE
+  egress:
+    - {dns: "", dnsNames: null, identifier: backend-tier, ipAddress: "", namespaceSelector: null, podSelector: {matchLabels: {app.kubernetes.io/tier: backend}}, ports: [{name: TCP-8080, port: 8080, protocol: TCP}, {name: TCP-8000, port: 8000, protocol: TCP}, {name: TCP-3000, port: 3000, protocol: TCP}, {name: TCP-5000, port: 5000, protocol: TCP}, {name: TCP-8443, port: 8443, protocol: TCP}], type: ""}
+    - {dns: "", dnsNames: null, identifier: dns, ipAddress: "", namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}, ports: [{name: UDP-53, port: 53, protocol: UDP}, {name: TCP-53, port: 53, protocol: TCP}], type: ""}
+  endpoints: null
   execs:
-    # container entrypoint / init shell — unavoidable in most stock images
-    - path: /bin/sh
-    - path: /usr/bin/sh
-    - path: /bin/dash
-    - path: /usr/bin/dash
-    - path: /bin/bash
-    - path: /usr/bin/bash
-    # coreutils used by entrypoint scripts (envsubst templating, perms, greps)
-    - path: /usr/bin/env
-    - path: /bin/env
-    - path: /usr/bin/cat
-    - path: /bin/cat
-    - path: /usr/bin/grep
-    - path: /bin/grep
-    - path: /usr/bin/sed
-    - path: /bin/sed
-    - path: /usr/bin/awk
-    - path: /bin/awk
-    - path: /usr/bin/mawk
-    - path: /bin/mawk
-    - path: /usr/bin/cut
-    - path: /bin/cut
-    - path: /usr/bin/sort
-    - path: /bin/sort
-    - path: /usr/bin/find
-    - path: /bin/find
-    - path: /usr/bin/touch
-    - path: /bin/touch
-    - path: /usr/bin/envsubst
-    - path: /bin/envsubst
-    - path: /usr/bin/id
-    - path: /bin/id
-    - path: /usr/bin/mkdir
-    - path: /bin/mkdir
-    - path: /usr/bin/chmod
-    - path: /bin/chmod
-    # the actual servers people use
-    - path: /usr/sbin/nginx
-    - path: /sbin/nginx
-    - path: /usr/local/bin/nginx
-    - path: /usr/bin/caddy
-    - path: /bin/caddy
-    - path: /usr/sbin/httpd
-    - path: /sbin/httpd
-    - path: /usr/local/bin/node
-    - path: /usr/bin/node
-    - path: /bin/node
-    - path: /usr/local/bin/deno
-    - path: /usr/bin/bun
-    - path: /bin/bun
-    # a compiled single-binary frontend (Go/Rust) usually lives here
-    - path: /app/⋯
-    - path: /usr/local/bin/⋯
-
+    - {path: '*'}
+    - {path: /*}
+  identifiedCallStacks: null
+  imageID: ""
+  imageTag: ""
+  ingress:
+    - {dns: "", dnsNames: null, identifier: ingress-controller, ipAddress: "", namespaceSelector: null, podSelector: {matchLabels: {app.kubernetes.io/name: ingress-nginx}}, ports: [{name: TCP-8080, port: 8080, protocol: TCP}, {name: TCP-80, port: 80, protocol: TCP}], type: ""}
   opens:
-    - path: /run/nginx.pid
-    - path: /var/run/nginx.pid
-    - path: /run/httpd/⋯
-    - path: /var/run/httpd/⋯
-    # app + static assets
-    - path: /app/⋯
-    - path: /srv/⋯
-    - path: /usr/share/nginx/⋯
-    - path: /usr/share/caddy/⋯
-    - path: /var/www/⋯
-    # config + runtime state
-    - path: /etc/nginx/⋯
-    - path: /etc/caddy/⋯
-    - path: /etc/apache2/⋯
-    - path: /docker-entrypoint.d/⋯
-    - path: /docker-entrypoint.sh
-    - path: /var/cache/⋯
-    - path: /var/log/⋯
-    - path: /tmp/⋯
-    - path: /dev/null
-    - path: /dev/urandom
-    - path: /dev/random
-    # NAMED /etc entries only — never a wildcard, so R0010/R0006 stay effective
-    - path: /etc/passwd
-    - path: /etc/group
-    - path: /etc/hosts
-    - path: /etc/hostname
-    - path: /etc/resolv.conf
-    - path: /etc/nsswitch.conf
-    - path: /etc/localtime
-    - path: /etc/ssl/⋯
-    - path: /etc/pki/⋯
-    - path: /etc/ca-certificates/⋯
-    - path: /etc/mime.types
-    # runtime linker / libs / language runtimes
-    - path: /lib/⋯
-    - path: /lib64/⋯
-    - path: /usr/lib/⋯
-    - path: /usr/local/lib/⋯
-    - path: /usr/share/zoneinfo/⋯
-    - path: /usr/share/ca-certificates/⋯
-    - path: /proc/⋯
-    - path: /sys/⋯
-
+    - {flags: [O_CLOEXEC, O_DIRECTORY, O_NONBLOCK, O_PATH, O_RDONLY], path: /}
+    - {flags: [O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT, O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE, O_NOATIME, O_NOCTTY, O_NOFOLLOW, O_NONBLOCK, O_PATH, O_RDONLY, O_RDWR, O_SYNC, O_TMPFILE, O_TRUNC, O_WRONLY], path: /*}
+  rulePolicies: {}
+  seccompProfile:
+    spec:
+      defaultAction: ""
+  subtract:
+    execs:
+      - args:
+          - /usr/bin/npm
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/local/bin/npm
+          - ⋯⋯
+        path: /*
+      - args:
+          - /bin/npm
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/bin/npx
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/local/bin/npx
+          - ⋯⋯
+        path: /*
+      - args:
+          - /bin/npx
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/bin/yarn
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/local/bin/yarn
+          - ⋯⋯
+        path: /*
+      - args:
+          - /bin/yarn
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/bin/pnpm
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/local/bin/pnpm
+          - ⋯⋯
+        path: /*
+      - args:
+          - /bin/pnpm
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/bin/pip
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/local/bin/pip
+          - ⋯⋯
+        path: /*
+      - args:
+          - /bin/pip
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/bin/pip3
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/local/bin/pip3
+          - ⋯⋯
+        path: /*
+      - args:
+          - /bin/pip3
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/bin/pipx
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/local/bin/pipx
+          - ⋯⋯
+        path: /*
+      - args:
+          - /bin/pipx
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/bin/gem
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/local/bin/gem
+          - ⋯⋯
+        path: /*
+      - args:
+          - /bin/gem
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/bin/composer
+          - ⋯⋯
+        path: /*
+      - args:
+          - /usr/local/bin/composer
+          - ⋯⋯
+        path: /*
+      - args:
+          - /bin/composer
+          - ⋯⋯
+        path: /*
+      - args:
+          - npm
+          - ⋯⋯
+        path: /*
+      - args:
+          - npx
+          - ⋯⋯
+        path: /*
+      - args:
+          - yarn
+          - ⋯⋯
+        path: /*
+      - args:
+          - pnpm
+          - ⋯⋯
+        path: /*
+      - args:
+          - pip
+          - ⋯⋯
+        path: /*
+      - args:
+          - pip3
+          - ⋯⋯
+        path: /*
+      - args:
+          - pipx
+          - ⋯⋯
+        path: /*
+      - args:
+          - gem
+          - ⋯⋯
+        path: /*
+      - args:
+          - composer
+          - ⋯⋯
+        path: /*
+      - path: apk
+      - path: apt
+      - path: apt-get
+      - path: composer
+      - path: crictl
+      - path: curl
+      - path: dnf
+      - path: docker
+      - path: dpkg
+      - path: gem
+      - path: kubectl
+      - path: microdnf
+      - path: nc
+      - path: ncat
+      - path: netcat
+      - path: nmap
+      - path: npm
+      - path: npx
+      - path: pip
+      - path: pip3
+      - path: pipx
+      - path: pnpm
+      - path: rpm
+      - path: scp
+      - path: sftp
+      - path: socat
+      - path: ssh
+      - path: telnet
+      - path: wget
+      - path: yarn
+      - path: yum
+      - path: /bin/apk
+      - path: /sbin/apk
+      - path: /usr/bin/apk
+      - path: /usr/sbin/apk
+      - path: /usr/local/bin/apk
+      - path: /usr/local/sbin/apk
+      - path: /bin/apt
+      - path: /sbin/apt
+      - path: /usr/bin/apt
+      - path: /usr/sbin/apt
+      - path: /usr/local/bin/apt
+      - path: /usr/local/sbin/apt
+      - path: /bin/apt-get
+      - path: /sbin/apt-get
+      - path: /usr/bin/apt-get
+      - path: /usr/sbin/apt-get
+      - path: /usr/local/bin/apt-get
+      - path: /usr/local/sbin/apt-get
+      - path: /bin/dpkg
+      - path: /sbin/dpkg
+      - path: /usr/bin/dpkg
+      - path: /usr/sbin/dpkg
+      - path: /usr/local/bin/dpkg
+      - path: /usr/local/sbin/dpkg
+      - path: /bin/yum
+      - path: /sbin/yum
+      - path: /usr/bin/yum
+      - path: /usr/sbin/yum
+      - path: /usr/local/bin/yum
+      - path: /usr/local/sbin/yum
+      - path: /bin/dnf
+      - path: /sbin/dnf
+      - path: /usr/bin/dnf
+      - path: /usr/sbin/dnf
+      - path: /usr/local/bin/dnf
+      - path: /usr/local/sbin/dnf
+      - path: /bin/microdnf
+      - path: /sbin/microdnf
+      - path: /usr/bin/microdnf
+      - path: /usr/sbin/microdnf
+      - path: /usr/local/bin/microdnf
+      - path: /usr/local/sbin/microdnf
+      - path: /bin/rpm
+      - path: /sbin/rpm
+      - path: /usr/bin/rpm
+      - path: /usr/sbin/rpm
+      - path: /usr/local/bin/rpm
+      - path: /usr/local/sbin/rpm
+      - path: /bin/pip
+      - path: /sbin/pip
+      - path: /usr/bin/pip
+      - path: /usr/sbin/pip
+      - path: /usr/local/bin/pip
+      - path: /usr/local/sbin/pip
+      - path: /bin/pip3
+      - path: /sbin/pip3
+      - path: /usr/bin/pip3
+      - path: /usr/sbin/pip3
+      - path: /usr/local/bin/pip3
+      - path: /usr/local/sbin/pip3
+      - path: /bin/pipx
+      - path: /sbin/pipx
+      - path: /usr/bin/pipx
+      - path: /usr/sbin/pipx
+      - path: /usr/local/bin/pipx
+      - path: /usr/local/sbin/pipx
+      - path: /bin/npm
+      - path: /sbin/npm
+      - path: /usr/bin/npm
+      - path: /usr/sbin/npm
+      - path: /usr/local/bin/npm
+      - path: /usr/local/sbin/npm
+      - path: /bin/npx
+      - path: /sbin/npx
+      - path: /usr/bin/npx
+      - path: /usr/sbin/npx
+      - path: /usr/local/bin/npx
+      - path: /usr/local/sbin/npx
+      - path: /bin/yarn
+      - path: /sbin/yarn
+      - path: /usr/bin/yarn
+      - path: /usr/sbin/yarn
+      - path: /usr/local/bin/yarn
+      - path: /usr/local/sbin/yarn
+      - path: /bin/pnpm
+      - path: /sbin/pnpm
+      - path: /usr/bin/pnpm
+      - path: /usr/sbin/pnpm
+      - path: /usr/local/bin/pnpm
+      - path: /usr/local/sbin/pnpm
+      - path: /bin/gem
+      - path: /sbin/gem
+      - path: /usr/bin/gem
+      - path: /usr/sbin/gem
+      - path: /usr/local/bin/gem
+      - path: /usr/local/sbin/gem
+      - path: /bin/composer
+      - path: /sbin/composer
+      - path: /usr/bin/composer
+      - path: /usr/sbin/composer
+      - path: /usr/local/bin/composer
+      - path: /usr/local/sbin/composer
+      - path: /bin/curl
+      - path: /sbin/curl
+      - path: /usr/bin/curl
+      - path: /usr/sbin/curl
+      - path: /usr/local/bin/curl
+      - path: /usr/local/sbin/curl
+      - path: /bin/wget
+      - path: /sbin/wget
+      - path: /usr/bin/wget
+      - path: /usr/sbin/wget
+      - path: /usr/local/bin/wget
+      - path: /usr/local/sbin/wget
+      - path: /bin/nc
+      - path: /sbin/nc
+      - path: /usr/bin/nc
+      - path: /usr/sbin/nc
+      - path: /usr/local/bin/nc
+      - path: /usr/local/sbin/nc
+      - path: /bin/ncat
+      - path: /sbin/ncat
+      - path: /usr/bin/ncat
+      - path: /usr/sbin/ncat
+      - path: /usr/local/bin/ncat
+      - path: /usr/local/sbin/ncat
+      - path: /bin/netcat
+      - path: /sbin/netcat
+      - path: /usr/bin/netcat
+      - path: /usr/sbin/netcat
+      - path: /usr/local/bin/netcat
+      - path: /usr/local/sbin/netcat
+      - path: /bin/socat
+      - path: /sbin/socat
+      - path: /usr/bin/socat
+      - path: /usr/sbin/socat
+      - path: /usr/local/bin/socat
+      - path: /usr/local/sbin/socat
+      - path: /bin/nmap
+      - path: /sbin/nmap
+      - path: /usr/bin/nmap
+      - path: /usr/sbin/nmap
+      - path: /usr/local/bin/nmap
+      - path: /usr/local/sbin/nmap
+      - path: /bin/telnet
+      - path: /sbin/telnet
+      - path: /usr/bin/telnet
+      - path: /usr/sbin/telnet
+      - path: /usr/local/bin/telnet
+      - path: /usr/local/sbin/telnet
+      - path: /bin/ssh
+      - path: /sbin/ssh
+      - path: /usr/bin/ssh
+      - path: /usr/sbin/ssh
+      - path: /usr/local/bin/ssh
+      - path: /usr/local/sbin/ssh
+      - path: /bin/scp
+      - path: /sbin/scp
+      - path: /usr/bin/scp
+      - path: /usr/sbin/scp
+      - path: /usr/local/bin/scp
+      - path: /usr/local/sbin/scp
+      - path: /bin/sftp
+      - path: /sbin/sftp
+      - path: /usr/bin/sftp
+      - path: /usr/sbin/sftp
+      - path: /usr/local/bin/sftp
+      - path: /usr/local/sbin/sftp
+      - path: /bin/kubectl
+      - path: /sbin/kubectl
+      - path: /usr/bin/kubectl
+      - path: /usr/sbin/kubectl
+      - path: /usr/local/bin/kubectl
+      - path: /usr/local/sbin/kubectl
+      - path: /bin/crictl
+      - path: /sbin/crictl
+      - path: /usr/bin/crictl
+      - path: /usr/sbin/crictl
+      - path: /usr/local/bin/crictl
+      - path: /usr/local/sbin/crictl
+      - path: /bin/docker
+      - path: /sbin/docker
+      - path: /usr/bin/docker
+      - path: /usr/sbin/docker
+      - path: /usr/local/bin/docker
+      - path: /usr/local/sbin/docker
+    opens:
+      - flags: null
+        path: /etc/shadow
+      - flags: null
+        path: /etc/gshadow
+      - flags: null
+        path: /etc/sudoers
+      - flags: null
+        path: /etc/sudoers.d/*
+      - flags: null
+        path: /etc/ssh/*
+      - flags: null
+        path: /root/.ssh/*
+      - flags: null
+        path: /home/*/.ssh/*
+      - flags: null
+        path: /proc/*/environ
+      - flags: null
+        path: /var/run/docker.sock
+      - flags: null
+        path: /run/docker.sock
+      - flags: null
+        path: /var/run/containerd/containerd.sock
+      - flags: null
+        path: /run/containerd/containerd.sock
+      - flags: null
+        path: /var/run/secrets/kubernetes.io/serviceaccount/token
+      - flags: null
+        path: /run/secrets/kubernetes.io/serviceaccount/token
+      - flags: null
+        path: /var/run/secrets/kubernetes.io/serviceaccount/*
+      - flags: null
+        path: /run/secrets/kubernetes.io/serviceaccount/*
   syscalls:
     - accept
     - accept4
     - access
+    - alarm
     - arch_prctl
     - bind
     - brk
+    - capget
+    - capset
     - chdir
+    - chmod
+    - chown
+    - clock_gettime
     - clock_nanosleep
     - clone
     - clone3
     - close
     - close_range
     - connect
+    - copy_file_range
+    - dup
     - dup2
     - dup3
     - epoll_create
@@ -167,32 +476,60 @@ spec:
     - faccessat
     - faccessat2
     - fadvise64
+    - fallocate
     - fchdir
+    - fchmod
+    - fchmodat
+    - fchown
+    - fchownat
     - fcntl
     - fdatasync
+    - fgetxattr
+    - flock
+    - fork
+    - fsconfig
+    - fsetxattr
+    - fsmount
+    - fsopen
     - fstat
     - fstatfs
     - fsync
+    - ftruncate
     - futex
     - getcwd
     - getdents64
     - getegid
     - geteuid
     - getgid
+    - getgroups
     - getpeername
+    - getpgrp
     - getpid
     - getppid
     - getrandom
+    - getresgid
+    - getresuid
     - getrlimit
+    - getrusage
     - getsockname
     - getsockopt
     - gettid
     - getuid
+    - getxattr
+    - io_setup
+    - io_uring_enter
+    - io_uring_setup
     - ioctl
+    - keyctl
+    - kill
+    - lchown
+    - link
     - listen
     - lseek
+    - lstat
     - madvise
     - membarrier
+    - mincore
     - mkdir
     - mkdirat
     - mmap
@@ -202,27 +539,36 @@ spec:
     - nanosleep
     - newfstatat
     - open
+    - open_tree
     - openat
     - openat2
+    - pause
     - pipe
     - pipe2
     - poll
     - prctl
     - pread64
     - prlimit64
+    - pselect6
     - pwrite64
+    - pwritev
     - read
     - readlink
     - readlinkat
+    - readv
     - recvfrom
     - recvmsg
     - rename
     - renameat
+    - rmdir
     - rseq
     - rt_sigaction
     - rt_sigprocmask
     - rt_sigreturn
+    - rt_sigsuspend
     - sched_getaffinity
+    - sched_getparam
+    - sched_getscheduler
     - sched_yield
     - sendfile
     - sendmmsg
@@ -230,74 +576,42 @@ spec:
     - sendto
     - set_robust_list
     - set_tid_address
+    - setgid
+    - setgroups
+    - setitimer
+    - setpgid
+    - setresgid
+    - setresuid
+    - setsid
     - setsockopt
+    - setuid
+    - shmat
+    - shmctl
+    - shmdt
+    - shmget
     - shutdown
     - sigaltstack
+    - signalfd4
     - socket
     - socketpair
     - stat
     - statfs
     - statx
+    - symlink
+    - symlinkat
+    - sync_file_range
     - sysinfo
     - tgkill
+    - timer_create
+    - timer_settime
+    - tkill
     - umask
     - uname
     - unlink
     - unlinkat
     - utimensat
+    - vfork
     - wait4
     - write
     - writev
-
-  egress:
-    # cluster DNS — every tier needs it
-    - identifier: dns
-      podSelector:
-        matchLabels:
-          k8s-app: kube-dns
-      namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: kube-system
-      ports:
-        - name: UDP-53
-          protocol: UDP
-          port: 53
-        - name: TCP-53
-          protocol: TCP
-          port: 53
-    # the ONLY app peer a frontend may talk to: the backend tier.
-    # NOTE: no database ports here. That omission is the point.
-    - identifier: backend-tier
-      podSelector:
-        matchLabels:
-          app.kubernetes.io/tier: backend
-      ports:
-        - name: TCP-8080
-          protocol: TCP
-          port: 8080
-        - name: TCP-8000
-          protocol: TCP
-          port: 8000
-        - name: TCP-3000
-          protocol: TCP
-          port: 3000
-        - name: TCP-5000
-          protocol: TCP
-          port: 5000
-        - name: TCP-8443
-          protocol: TCP
-          port: 8443
-
-  ingress:
-    # traffic arrives from the ingress controller, not from the internet directly
-    - identifier: ingress-controller
-      podSelector:
-        matchLabels:
-          app.kubernetes.io/name: ingress-nginx
-      ports:
-        - name: TCP-8080
-          protocol: TCP
-          port: 8080
-        - name: TCP-80
-          protocol: TCP
-          port: 80
+status: {}

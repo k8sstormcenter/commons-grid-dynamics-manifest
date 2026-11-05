@@ -98,14 +98,16 @@ ADR-0007:
   status: accepted
   applies_to: every ContainerProfile stored for an application namespace
   decision: >-
-    No profile contains a wildcard entry at or above a path another rule protects: nothing directly
-    under /etc, /run, /var/run or at the root. Only named files and named per-engine directories.
-    The ServiceAccount token path appears only in the backend profile, written concretely.
+    Tier profiles are generic: the platform cannot know what an application will run, so a tier
+    profile may allow any process and any file. What it may not do is hide the paths other rules
+    watch. Every wildcard that covers a protected path (password and sudo files, SSH keys, process
+    environments, and the ServiceAccount token outside the backend tier) comes with a subtract entry
+    for that path, so reading it still alerts.
   why: >-
     Generality in a profile is bought with detection: a wildcard above a protected path silently
     disables the rule that watches it, and a suppressed rule produces exactly the silence a passing
-    check produces. No runtime evidence can confirm this ADR; the stored profile has to be read back
-    — the files on disk are not enough, because collapsing happens on write.
+    check produces. A subtract entry keeps the rule alive under the wildcard. No runtime evidence can
+    confirm this ADR; the stored profile has to be read back, because collapsing happens on write.
 
 ADR-0010:
   status: proposed

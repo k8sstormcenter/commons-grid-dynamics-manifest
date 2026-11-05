@@ -35,6 +35,10 @@ HTTP_PORTS = (80, 8080, 3000, 8000, 5000, 9000, 443, 8443)
 SECRET_ENV = re.compile(r"(PASS|PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIAL|CLIENT_SECRET|DSN|CONNECTION_?STRING)", re.I)
 DANGEROUS_CAPS = {"SYS_ADMIN", "SYS_MODULE", "NET_ADMIN", "SYS_PTRACE", "SYS_RAWIO", "BPF", "DAC_READ_SEARCH", "SYS_BOOT", "NET_RAW", "ALL"}
 METADATA_IP = "169.254.169.254"
+# Paths a rule watches (R0010 sensitive files, R0008 environ, R0006 the token): a profile wildcard
+# above one of them is acceptable only when the profile also subtracts it.
+PROTECTED_PATHS = ["/etc/shadow", "/etc/sudoers", "/etc/ssh/sshd_config", "/root/.ssh/id_rsa", "/proc/1/environ"]
+TOKEN_PATHS = ["/var/run/secrets/kubernetes.io/serviceaccount/token", "/run/secrets/kubernetes.io/serviceaccount/token"]
 # platform-granted exceptions: ConfigMap <ADR_EXCEPTIONS_NS>/<ADR_EXCEPTIONS_NAME>, data key "<namespace>/<workload>" (or "<namespace>/*"),
 # value "ADR-0018=<reason>; ADR-0016=<reason>". Only the platform writes it; the application cannot exempt itself.
 EXCEPTIONS_NS = os.environ.get("ADR_EXCEPTIONS_NS", "sbob-library")
@@ -382,17 +386,30 @@ class Evidence:
                                       "metadata_api_blocked": deny_out and not allows_meta})
 
     # ---- profiles and the admission policy
+    @staticmethod
+    def _covers(pattern, path):
+        """True when a profile path (⋯ = one segment, * = any rest) matches a concrete path."""
+        rx = "^" + "/".join(".*" if s == "*" else "[^/]+" if s == "⋯" else re.escape(s) for s in pattern.split("/")) + "$"
+        return re.match(rx, path) is not None
+
     def _profiles(self):
         wild = re.compile(r"^(/etc|/run|/var/run)/(⋯|\*)$|^/(⋯|\*)$")
         for name in sorted(self.profile_names):
             full = kget(["-n", self.ns, "get", "containerprofiles.spdx.softwarecomposition.kubescape.io", name], items=False)
             spec = full.get("spec", {}) or {}
             opens = [o.get("path", "") for o in spec.get("opens", []) or []]
+            subtracted = [o.get("path", "") for o in (spec.get("subtract") or {}).get("opens", []) or []]
             toks = [p for p in opens if "serviceaccount" in p]
+            tier = name[5:] if name.startswith("tier-") else None
+            watched = PROTECTED_PATHS + ([] if tier == "backend" else TOKEN_PATHS)
+            exposed = {w: [q for q in watched if self._covers(w, q) and not any(self._covers(s, q) for s in subtracted)]
+                       for w in opens if wild.search(w)}
+            exposed = {w: qs for w, qs in exposed.items() if qs}
             self.events["profile"].append({
-                "name": name, "tier": name[5:] if name.startswith("tier-") else None,
-                "opens": len(opens), "execs": len(spec.get("execs", []) or []),
-                "wildcard_paths": [p for p in opens if wild.search(p)], "wildcards": sum(1 for p in opens if wild.search(p)),
+                "name": name, "tier": tier,
+                "opens": len(opens), "execs": len(spec.get("execs", []) or []), "subtracted_opens": len(subtracted),
+                "wildcard_paths": sorted(exposed), "wildcards": len(exposed),
+                "unsubtracted_paths": sorted({q for qs in exposed.values() for q in qs}),
                 "token_paths": toks, "token_concrete": all(p.endswith("/token") for p in toks) if toks else None,
                 "has_egress": bool(spec.get("egress")), "has_ingress": bool(spec.get("ingress")),
                 "signed": bool((full.get("metadata", {}).get("annotations") or {}).get("kubescape.io/signature"))})

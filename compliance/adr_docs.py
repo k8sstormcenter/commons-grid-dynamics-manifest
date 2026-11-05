@@ -46,7 +46,7 @@ FIELD_WORDS = {
     "proto": "protocol", "encrypted": "encrypted", "path": "path", "remote_kind": "remote", "remote_ns": "remote namespace",
     "run_as_non_root": "runAsNonRoot", "allow_priv_esc": "allowPrivilegeEscalation", "read_only_root": "readOnlyRootFilesystem",
     "seccomp": "seccompProfile.type", "pull_policy": "imagePullPolicy", "scope": "scope", "assigned_by": "tier assigned by",
-    "wildcards": "wildcard entries", "js_bytes": "client code bytes", "n_solvers": "solvers defined in the page",
+    "wildcards": "wildcards over unsubtracted protected paths", "unsubtracted_paths": "protected paths left unsubtracted", "js_bytes": "client code bytes", "n_solvers": "solvers defined in the page",
     "n_datasets": "datasets embedded in the page", "client_state": "browser-storage uses", "backend_calls": "backend call sites",
     "auth_markers": "authentication markers", "auth": "Authorization", "status": "HTTP status",
     "via_ingress": "via the ingress controller", "egress_external": "outbound to outside the cluster", "fronts_frontend": "fronting the frontend",
