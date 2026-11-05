@@ -1,0 +1,92 @@
+# Tier base: middleware - queues and brokers between backend and database: Kafka, RabbitMQ, NATS, Redis-as-cache.
+#
+# Deliberately generic. The platform cannot know which application a team will ship,
+# so this allows every process and every file a workload of this tier might use.
+# What it still says no to:
+#   - the network edges of the tier (who it may call, who may call it)
+#   - capabilities outside CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH, CAP_IPC_LOCK, CAP_NET_ADMIN, CAP_NET_BIND_SERVICE
+#   - everything listed in the subtract fragments composed on top (see compose.sh)
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ContainerProfile
+metadata:
+  name: base-middleware
+  namespace: sbob-library
+  annotations: {kubescape.io/managed-by: User}
+  labels: {kubescape.io/profile-fragment: base}
+spec:
+  architectures: [amd64]
+  capabilities: [CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH, CAP_IPC_LOCK, CAP_NET_ADMIN, CAP_NET_BIND_SERVICE]
+  execs:
+  - path: /*
+    args: [⋯, ⋯⋯]
+  - path: '*'
+    args: [⋯, ⋯⋯]
+  opens:
+  - path: /
+    flags: [O_CLOEXEC, O_DIRECTORY, O_NONBLOCK, O_PATH, O_RDONLY]
+  - path: /*
+    flags: [O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT, O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE, O_NOATIME, O_NOCTTY, O_NOFOLLOW, O_NONBLOCK, O_PATH, O_RDONLY,
+      O_RDWR, O_SYNC, O_TMPFILE, O_TRUNC, O_WRONLY]
+  syscalls: [accept, accept4, access, alarm, arch_prctl, bind, brk, capget, capset, chdir, chmod, chown, clock_gettime, clock_nanosleep, clone, clone3, close, close_range,
+    connect, copy_file_range, dup, dup2, dup3, epoll_create, epoll_create1, epoll_ctl, epoll_pwait, epoll_wait, eventfd2, execve, exit, exit_group, faccessat, faccessat2,
+    fadvise64, fallocate, fchdir, fchmod, fchmodat, fchown, fchownat, fcntl, fdatasync, fgetxattr, flock, fork, fsconfig, fsetxattr, fsmount, fsopen, fstat, fstatfs,
+    fsync, ftruncate, futex, getcwd, getdents64, getegid, geteuid, getgid, getgroups, getpeername, getpgrp, getpid, getppid, getrandom, getresgid, getresuid, getrlimit,
+    getrusage, getsockname, getsockopt, gettid, getuid, getxattr, io_setup, io_uring_enter, io_uring_setup, ioctl, keyctl, kill, lchown, link, listen, lseek, lstat,
+    madvise, membarrier, mincore, mkdir, mkdirat, mmap, mprotect, mremap, munmap, nanosleep, newfstatat, open, open_tree, openat, openat2, pause, pipe, pipe2, poll,
+    prctl, pread64, prlimit64, pselect6, pwrite64, pwritev, read, readlink, readlinkat, readv, recvfrom, recvmsg, rename, renameat, rmdir, rseq, rt_sigaction, rt_sigprocmask,
+    rt_sigreturn, rt_sigsuspend, sched_getaffinity, sched_getparam, sched_getscheduler, sched_yield, sendfile, sendmmsg, sendmsg, sendto, set_robust_list, set_tid_address,
+    setgid, setgroups, setitimer, setpgid, setresgid, setresuid, setsid, setsockopt, setuid, shmat, shmctl, shmdt, shmget, shutdown, sigaltstack, signalfd4, socket,
+    socketpair, stat, statfs, statx, symlink, symlinkat, sync_file_range, sysinfo, tgkill, timer_create, timer_settime, tkill, umask, uname, unlink, unlinkat, utimensat,
+    vfork, wait4, write, writev]
+  egress:
+  - identifier: dns
+    podSelector:
+      matchLabels: {k8s-app: kube-dns}
+    namespaceSelector:
+      matchLabels: {kubernetes.io/metadata.name: kube-system}
+    ports:
+    - {name: UDP-53, protocol: UDP, port: 53}
+    - {name: TCP-53, protocol: TCP, port: 53}
+  - identifier: database-tier
+    podSelector:
+      matchLabels: {app.kubernetes.io/tier: database}
+    ports:
+    - {name: TCP-5432, protocol: TCP, port: 5432}
+    - {name: TCP-3306, protocol: TCP, port: 3306}
+    - {name: TCP-27017, protocol: TCP, port: 27017}
+    - {name: TCP-6379, protocol: TCP, port: 6379}
+  - identifier: middleware-peers
+    podSelector:
+      matchLabels: {app.kubernetes.io/tier: middleware}
+    ports:
+    - {name: TCP-9092, protocol: TCP, port: 9092}
+    - {name: TCP-9093, protocol: TCP, port: 9093}
+    - {name: TCP-2181, protocol: TCP, port: 2181}
+    - {name: TCP-2888, protocol: TCP, port: 2888}
+    - {name: TCP-3888, protocol: TCP, port: 3888}
+    - {name: TCP-5672, protocol: TCP, port: 5672}
+    - {name: TCP-25672, protocol: TCP, port: 25672}
+    - {name: TCP-4222, protocol: TCP, port: 4222}
+    - {name: TCP-6222, protocol: TCP, port: 6222}
+    - {name: TCP-8222, protocol: TCP, port: 8222}
+  ingress:
+  - identifier: backend-tier
+    podSelector:
+      matchLabels: {app.kubernetes.io/tier: backend}
+    ports:
+    - {name: TCP-9092, protocol: TCP, port: 9092}
+    - {name: TCP-5672, protocol: TCP, port: 5672}
+    - {name: TCP-4222, protocol: TCP, port: 4222}
+    - {name: TCP-6379, protocol: TCP, port: 6379}
+    - {name: TCP-15672, protocol: TCP, port: 15672}
+    - {name: TCP-8080, protocol: TCP, port: 8080}
+  - identifier: middleware-peers
+    podSelector:
+      matchLabels: {app.kubernetes.io/tier: middleware}
+    ports:
+    - {name: TCP-9092, protocol: TCP, port: 9092}
+    - {name: TCP-2181, protocol: TCP, port: 2181}
+    - {name: TCP-2888, protocol: TCP, port: 2888}
+    - {name: TCP-3888, protocol: TCP, port: 3888}
+    - {name: TCP-25672, protocol: TCP, port: 25672}
+    - {name: TCP-6222, protocol: TCP, port: 6222}

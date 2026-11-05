@@ -1,0 +1,15 @@
+import px
+
+dsn = 'forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db'
+START = '-6h'
+ITERATION = -1     # -1 = all iterations
+
+df = px.DataFrame('adr_findings_grouped', clickhouse_dsn=dsn, start_time=START)
+df = df[(df.iteration == ITERATION) | (ITERATION == -1)]
+
+status = df.groupby(['iteration', 'adr', 'adr_summary', 'status']).agg(proof=('proof', px.any))
+px.display(status, 'adr_status')
+
+v = df[df.counted == True]
+v = v[v.decision_broken != '']
+px.display(v[['iteration', 'adr_summary', 'owner', 'decision_broken', 'affected', 'events', 'fix']], 'adr_findings_grouped')
