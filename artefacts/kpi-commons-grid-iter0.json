@@ -1,0 +1,807 @@
+{
+ "schema": "adr-kpi/v2",
+ "generated_at": "2026-11-05T05:50:04+00:00",
+ "cluster": "bobexample",
+ "namespace": "commons-grid",
+ "source": {
+  "clickhouse": "10.42.1.142",
+  "table": "forensic_db.kubescape_logs",
+  "window": {
+   "from": 1793857549,
+   "to": 1793857796,
+   "seconds": 247
+  },
+  "rows": 3,
+  "rules_seen": [
+   "R0012"
+  ],
+  "wire_rows": 0,
+  "test_cases": [],
+  "component_load": [],
+  "edges_seen": [],
+  "static": "static controls from /tmp/AllControls-commons-grid.json",
+  "warmup_s": 210,
+  "notes": [],
+  "counts": {
+   "pod": 1,
+   "spec": 1,
+   "svc": 1,
+   "ingress": 1,
+   "netpol": 1,
+   "profile": 5,
+   "secret": 1,
+   "rbac": 1,
+   "runtime": 1,
+   "wire": 0,
+   "scan": 47,
+   "scan_present": 1,
+   "probe": 0,
+   "content": 1,
+   "metrics": 0
+  }
+ },
+ "summary": {
+  "adrs": 16,
+  "violated": 9,
+  "compliant": 3,
+  "not_observed": 4,
+  "coverage": {
+   "pods": 1,
+   "governed": 1,
+   "warm": 1,
+   "watched": true
+  }
+ },
+ "kpis": [
+  {
+   "kpi": "ADR-0001",
+   "summary": "Strict tier layering",
+   "status": "NOT_OBSERVED",
+   "compliant": false,
+   "violations": 0
+  },
+  {
+   "kpi": "ADR-0002",
+   "summary": "Data tier makes no outbound calls",
+   "status": "NOT_OBSERVED",
+   "compliant": false,
+   "violations": 0
+  },
+  {
+   "kpi": "ADR-0003",
+   "summary": "Only the backend holds cluster credentials",
+   "status": "VIOLATED",
+   "compliant": false,
+   "violations": 1
+  },
+  {
+   "kpi": "ADR-0004",
+   "summary": "Images immutable at runtime",
+   "status": "VIOLATED",
+   "compliant": false,
+   "violations": 1
+  },
+  {
+   "kpi": "ADR-0005",
+   "summary": "Every workload is classified and bound",
+   "status": "VIOLATED",
+   "compliant": false,
+   "violations": 1
+  },
+  {
+   "kpi": "ADR-0006",
+   "summary": "Run as non-root",
+   "status": "VIOLATED",
+   "compliant": false,
+   "violations": 2
+  },
+  {
+   "kpi": "ADR-0007",
+   "summary": "Detection cannot be switched off by a profile",
+   "status": "COMPLIANT",
+   "compliant": true,
+   "violations": 0
+  },
+  {
+   "kpi": "ADR-0010",
+   "summary": "Requests authenticated by the platform IdP",
+   "status": "NOT_OBSERVED",
+   "compliant": false,
+   "violations": 0
+  },
+  {
+   "kpi": "ADR-0011",
+   "summary": "No plaintext on the wire",
+   "status": "VIOLATED",
+   "compliant": false,
+   "violations": 1
+  },
+  {
+   "kpi": "ADR-0012",
+   "summary": "Metrics on a dedicated port",
+   "status": "NOT_OBSERVED",
+   "compliant": false,
+   "violations": 0
+  },
+  {
+   "kpi": "ADR-0013",
+   "summary": "Resources, probes and security context declared",
+   "status": "VIOLATED",
+   "compliant": false,
+   "violations": 6
+  },
+  {
+   "kpi": "ADR-0014",
+   "summary": "Images pinned by digest",
+   "status": "VIOLATED",
+   "compliant": false,
+   "violations": 1
+  },
+  {
+   "kpi": "ADR-0016",
+   "summary": "No shared or long-lived credentials",
+   "status": "COMPLIANT",
+   "compliant": true,
+   "violations": 0
+  },
+  {
+   "kpi": "ADR-0017",
+   "summary": "Least-privilege RBAC",
+   "status": "COMPLIANT",
+   "compliant": true,
+   "violations": 0
+  },
+  {
+   "kpi": "ADR-0018",
+   "summary": "No privilege, no host surface",
+   "status": "VIOLATED",
+   "compliant": false,
+   "violations": 1
+  },
+  {
+   "kpi": "ADR-0019",
+   "summary": "Exposure through the platform's tailnet",
+   "status": "VIOLATED",
+   "compliant": false,
+   "violations": 3
+  }
+ ],
+ "adrs": [
+  {
+   "id": "ADR-0001",
+   "summary": "Strict tier layering",
+   "title": "Tiers are strictly layered; the presentation tier never reaches the data tier",
+   "verified_by": "sbob.egress, sbob.ingress, netpol",
+   "status": "NOT_OBSERVED",
+   "proof": "\u2713 tier pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 246s vs warm-up 210s, sensor rows in window: 3 | \u2717 frontend->backend flow seen on the wire: 0 (needs \u22651)",
+   "violations": 0,
+   "findings": []
+  },
+  {
+   "id": "ADR-0002",
+   "summary": "Data tier makes no outbound calls",
+   "title": "The data tier never initiates outbound connections",
+   "verified_by": "sbob.egress, netpol",
+   "status": "NOT_OBSERVED",
+   "proof": "\u2717 data-tier pods governed and past warm-up: 0/0 pod(s) governed (no pods in these tiers), sensor rows in window: 3",
+   "violations": 0,
+   "findings": []
+  },
+  {
+   "id": "ADR-0003",
+   "summary": "Only the backend holds cluster credentials",
+   "title": "Only the backend tier holds cluster credentials",
+   "verified_by": "sbob.opens, kyverno.validate",
+   "status": "VIOLATED",
+   "proof": "\u2713 non-backend containers' automountServiceAccountToken read from the pod spec: 1 | \u2713 pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 246s vs warm-up 210s, sensor rows in window: 3 | findings: 1 counted, 0 discounted",
+   "violations": 1,
+   "findings": [
+    {
+     "adr": "ADR-0003",
+     "source": "spec",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": "web",
+     "tier": "frontend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "the ServiceAccount token is mounted into a non-backend tier",
+     "observed": "automount_sa=True, tier=frontend, container=web",
+     "fix": "set spec.template.spec.automountServiceAccountToken = false",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "spec"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ADR-0004",
+   "summary": "Images immutable at runtime",
+   "title": "Images are immutable at runtime; nothing is installed after build",
+   "verified_by": "kyverno.validate, sbob.execs",
+   "status": "VIOLATED",
+   "proof": "\u2713 all pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 246s vs warm-up 210s, sensor rows in window: 3 | \u2713 containers' root filesystem mode and volume mounts read from the pod spec: 1 | findings: 1 counted, 0 discounted",
+   "violations": 1,
+   "findings": [
+    {
+     "adr": "ADR-0004",
+     "source": "spec",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": "web",
+     "tier": "frontend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "the image is mounted writable (root filesystem not read-only)",
+     "observed": "read_only_root=None, container=web",
+     "fix": "set securityContext.readOnlyRootFilesystem = true; writable paths as named emptyDir mounts",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "spec"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ADR-0005",
+   "summary": "Every workload is classified and bound",
+   "title": "Every workload is classified and bound to its tier profile; an unrecognised one is quarantined",
+   "verified_by": "kyverno.mutate, clone-tier-sbobs",
+   "status": "VIOLATED",
+   "proof": "\u2713 pods checked at admission (tier label + profile binding): 1 [tier=frontend bound=True \u00d71] | findings: 1 counted, 0 discounted",
+   "violations": 1,
+   "findings": [
+    {
+     "adr": "ADR-0005",
+     "source": "pod",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": null,
+     "tier": "frontend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": "edge4-server",
+     "decision_broken": "an unrecognised image was given a real tier instead of tier=unclassified (admission port fallback)",
+     "observed": "assigned_by=port, tier=frontend, images=[\"ghcr.io/k8sstormcenter/commons-grid-dynamics:9ab1489587f7030ef70dbc3b67e170e8bd9f027f@sha256:229396b5c08f1dc6044363818c87836f79d7e9f67dfa62fd88136d86413bbcff\"]",
+     "fix": "platform: remove the port-based rules from the admission policy so an unrecognised image lands in quarantine; application: declare app.kubernetes.io/tier",
+     "owner": "platform",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "pod"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ADR-0006",
+   "summary": "Run as non-root",
+   "title": "Workloads run as non-root",
+   "verified_by": "kyverno.validate, sbob.capabilities",
+   "status": "VIOLATED",
+   "proof": "\u2713 containers' securityContext read from the pod spec: 1 | \u2713 kubescape scan supplied (insecure capabilities / host namespaces): 1 | findings: 2 counted, 0 discounted",
+   "violations": 2,
+   "findings": [
+    {
+     "adr": "ADR-0006",
+     "source": "spec",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": "web",
+     "tier": "frontend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "container may run as root",
+     "observed": "run_as_non_root=None, container=web, run_as_user=None",
+     "fix": "set securityContext.runAsNonRoot = true and a numeric runAsUser",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "spec"
+     }
+    },
+    {
+     "adr": "ADR-0006",
+     "source": "spec",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": "web",
+     "tier": "frontend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "privilege escalation is permitted",
+     "observed": "allow_priv_esc=None, container=web",
+     "fix": "set securityContext.allowPrivilegeEscalation = false",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "spec"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ADR-0007",
+   "summary": "Detection cannot be switched off by a profile",
+   "title": "A profile wildcard never covers a protected path that the profile does not also subtract",
+   "verified_by": "sbob.authoring",
+   "status": "COMPLIANT",
+   "proof": "\u2713 ContainerProfiles read back from the cluster (GET each): 5 [name=tier-backend \u00d71; name=tier-database \u00d71; name=tier-frontend \u00d71; name=tier-middleware \u00d71; name=tier-unclassified \u00d71]",
+   "violations": 0,
+   "findings": []
+  },
+  {
+   "id": "ADR-0010",
+   "summary": "Requests authenticated by the platform IdP",
+   "title": "Every backend request is authenticated by the platform identity provider",
+   "verified_by": "app-code, idp-client",
+   "status": "NOT_OBSERVED",
+   "proof": "\u2717 backend routes probed without a token: 0 (needs \u22651)",
+   "violations": 0,
+   "findings": []
+  },
+  {
+   "id": "ADR-0011",
+   "summary": "No plaintext on the wire",
+   "title": "No plaintext on the wire",
+   "verified_by": "platform-ingress, cert-manager, app-config",
+   "status": "VIOLATED",
+   "proof": "\u2717 the frontend is exposed through the platform (tailnet-exposed Service): 0 (needs \u22651) | \u2717 application flows captured on the wire (Pixie): 0 (needs \u22651) | findings: 1 counted, 0 discounted",
+   "violations": 1,
+   "findings": [
+    {
+     "adr": "ADR-0011",
+     "source": "svc",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": null,
+     "tier": null,
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "plaintext port exposed outside the cluster",
+     "observed": "exposed=True, plaintext_ports=[80], type=NodePort",
+     "fix": "ClusterIP + Ingress with tls",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "svc"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ADR-0012",
+   "summary": "Metrics on a dedicated port",
+   "title": "Metrics are served on a dedicated port, scraped only by the platform",
+   "verified_by": "kyverno.validate, netpol",
+   "status": "NOT_OBSERVED",
+   "proof": "\u2717 containerPort names read from the pod spec: 0 (needs \u22651) | \u2717 /metrics probed on the application port: 0 (needs \u22651)",
+   "violations": 0,
+   "findings": []
+  },
+  {
+   "id": "ADR-0013",
+   "summary": "Resources, probes and security context declared",
+   "title": "Every workload declares its envelope: resources, probes, security context",
+   "verified_by": "kyverno.validate",
+   "status": "VIOLATED",
+   "proof": "\u2713 containers' resources, probes and securityContext read from the pod spec: 1 | findings: 6 counted, 0 discounted",
+   "violations": 6,
+   "findings": [
+    {
+     "adr": "ADR-0013",
+     "source": "spec",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": "web",
+     "tier": "frontend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "no cpu/memory requests",
+     "observed": "has_requests=False, container=web",
+     "fix": "set resources.requests.cpu and .memory (choose values)",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "spec"
+     }
+    },
+    {
+     "adr": "ADR-0013",
+     "source": "spec",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": "web",
+     "tier": "frontend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "no cpu/memory limits",
+     "observed": "has_limits=False, container=web",
+     "fix": "set resources.limits.cpu and .memory (choose values)",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "spec"
+     }
+    },
+    {
+     "adr": "ADR-0013",
+     "source": "spec",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": "web",
+     "tier": "frontend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "no liveness probe",
+     "observed": "has_liveness=False, container=web",
+     "fix": "add livenessProbe (httpGet /healthz or tcpSocket)",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "spec"
+     }
+    },
+    {
+     "adr": "ADR-0013",
+     "source": "spec",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": "web",
+     "tier": "frontend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "no readiness probe",
+     "observed": "has_readiness=False, container=web",
+     "fix": "add readinessProbe (httpGet /readyz or tcpSocket)",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "spec"
+     }
+    },
+    {
+     "adr": "ADR-0013",
+     "source": "spec",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": "web",
+     "tier": "frontend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "no seccomp profile",
+     "observed": "seccomp=None, container=web",
+     "fix": "set securityContext.seccompProfile.type = RuntimeDefault",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "spec"
+     }
+    },
+    {
+     "adr": "ADR-0013",
+     "source": "spec",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": "web",
+     "tier": "frontend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "capabilities not dropped",
+     "observed": "caps_drop_all=False, container=web",
+     "fix": "set securityContext.capabilities.drop = [ALL]",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "spec"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ADR-0014",
+   "summary": "Images pinned by digest",
+   "title": "Images are pinned by digest, signed; no latest",
+   "verified_by": "kyverno.validate, cosign",
+   "status": "VIOLATED",
+   "proof": "\u2713 container images checked for @sha256 pins: 1 [pinned=True \u00d71] | \u2713 kubescape scan supplied (image signature): 1 | findings: 1 counted, 0 discounted",
+   "violations": 1,
+   "findings": [
+    {
+     "adr": "ADR-0014",
+     "source": "spec",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": "web",
+     "tier": "frontend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "pull policy Always on a pinned image",
+     "observed": "pinned=True, pull_policy=Always, container=web, image=ghcr.io/k8sstormcenter/commons-grid-dynamics:9ab1489587f7030ef70dbc3b67e170e8bd9f027f@sha256:229396b5c08f1dc6044363818c87836f79d7e9f67dfa62fd88136d86413bbcff",
+     "fix": "imagePullPolicy: IfNotPresent",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "spec"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ADR-0016",
+   "summary": "No shared or long-lived credentials",
+   "title": "Credentials are per workload, short-lived, and never in environment variables or manifests",
+   "verified_by": "kyverno.validate, secret-rotation, workload-identity",
+   "status": "COMPLIANT",
+   "proof": "\u2713 containers' env, envFrom and volume mounts read from the pod spec: 1 | \u2713 kubescape scan supplied (credentials in configuration): 1",
+   "violations": 0,
+   "findings": []
+  },
+  {
+   "id": "ADR-0017",
+   "summary": "Least-privilege RBAC",
+   "title": "A workload's ServiceAccount holds only the permissions its code uses; nothing is bound to default",
+   "verified_by": "rbac-review, kyverno.validate",
+   "status": "COMPLIANT",
+   "proof": "\u2713 ServiceAccounts of the running pods resolved through their bindings to rules: 1 [service_account=default rules=0 \u00d71]",
+   "violations": 0,
+   "findings": []
+  },
+  {
+   "id": "ADR-0018",
+   "summary": "No privilege, no host surface",
+   "title": "Workloads are unprivileged, touch no host path, load no kernel module and cannot reach the cloud metadata API",
+   "verified_by": "kyverno.validate, netpol, sbob.capabilities",
+   "status": "VIOLATED",
+   "proof": "\u2713 containers' securityContext, capabilities and volumes read from the pod spec: 1 | \u2713 the namespace's egress policy checked against the metadata API address: 1 [metadata_api_blocked=False \u00d71] | findings: 1 counted, 0 discounted",
+   "violations": 1,
+   "findings": [
+    {
+     "adr": "ADR-0018",
+     "source": "netpol",
+     "evidence_class": "declared",
+     "workload": "commons-grid",
+     "container": null,
+     "tier": null,
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "egress to the cloud metadata API (169.254.169.254) is not blocked by NetworkPolicy",
+     "observed": "scope=namespace, metadata_api_blocked=False, policies=0, default_deny_egress=False",
+     "fix": "default-deny egress plus explicit allows; never an allow covering 169.254.169.254",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "netpol"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ADR-0019",
+   "summary": "Exposure through the platform's tailnet",
+   "title": "A workload is reachable only through the platform's tailnet exposure of its frontend Service; it opens nothing itself",
+   "verified_by": "tailscale-operator, kyverno.validate, netpol",
+   "status": "VIOLATED",
+   "proof": "\u2713 Services, exposure annotations and NetworkPolicies of the namespace examined: 1 [objects=0 fronts_frontend=False tls=None \u00d71] | findings: 3 counted, 0 discounted",
+   "violations": 3,
+   "findings": [
+    {
+     "adr": "ADR-0019",
+     "source": "ingress",
+     "evidence_class": "declared",
+     "workload": "commons-grid",
+     "container": null,
+     "tier": null,
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "the frontend is not exposed through the platform's tailnet",
+     "observed": "scope=namespace, fronts_frontend=False, objects=0, frontend_services=[\"commons-grid-dynamics\"]",
+     "fix": "annotate the frontend Service: tailscale.com/expose: \"true\", tailscale.com/hostname: <app>, tailscale.com/tags: tag:<platform tag>",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "ingress"
+     }
+    },
+    {
+     "adr": "ADR-0019",
+     "source": "netpol",
+     "evidence_class": "declared",
+     "workload": "commons-grid",
+     "container": null,
+     "tier": null,
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "no default-deny NetworkPolicy in the namespace",
+     "observed": "scope=namespace, default_deny=False, policies=0, default_deny_ingress=False, default_deny_egress=False",
+     "fix": "default-deny ingress+egress; allow tailscale-system->frontend, frontend->backend, backend->database, backend->IdP, monitoring->metrics, all->DNS",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "netpol"
+     }
+    },
+    {
+     "adr": "ADR-0019",
+     "source": "svc",
+     "evidence_class": "declared",
+     "workload": "commons-grid-dynamics",
+     "container": null,
+     "tier": null,
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "workload opens its own ingress (NodePort / LoadBalancer)",
+     "observed": "exposed=True, type=NodePort, node_ports=[30080]",
+     "fix": "type: ClusterIP; expose the frontend Service through the tailscale operator annotations",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "svc"
+     }
+    }
+   ]
+  }
+ ],
+ "workloads": [
+  {
+   "pod": "commons-grid-dynamics-6f7c4b488b-wm82z",
+   "workload": "commons-grid-dynamics",
+   "tier": "frontend",
+   "profile": "tier-frontend",
+   "bound": true,
+   "ip": "10.42.2.22",
+   "node": "edge4-server",
+   "age_s": 246,
+   "warm": true,
+   "declared_tier": null,
+   "assigned_by": "port",
+   "image_known": false,
+   "images": [
+    "ghcr.io/k8sstormcenter/commons-grid-dynamics:9ab1489587f7030ef70dbc3b67e170e8bd9f027f@sha256:229396b5c08f1dc6044363818c87836f79d7e9f67dfa62fd88136d86413bbcff"
+   ]
+  }
+ ],
+ "content": [
+  {
+   "pod": "commons-grid-dynamics-6f7c4b488b-wm82z",
+   "workload": "commons-grid-dynamics",
+   "tier": "frontend",
+   "serves_page": true,
+   "status": 200,
+   "bytes": 194656,
+   "js_bytes": 182341,
+   "js_kb": 178,
+   "scripts": [],
+   "functions": 76,
+   "api_paths": [],
+   "n_api_paths": 0,
+   "marker_client_state": 2,
+   "marker_backend_calls": 0,
+   "marker_auth": 0,
+   "backend_calls": 0,
+   "auth_markers": 0,
+   "client_state": 2
+  }
+ ],
+ "broken_before_anything_else": []
+}
