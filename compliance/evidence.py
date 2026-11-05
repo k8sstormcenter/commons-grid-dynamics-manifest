@@ -721,13 +721,21 @@ class Evidence:
             for port in ports:
                 st, n, _, body = http(f"http://{meta['ip']}:{port}/metrics", timeout=5)
                 counters = {}
+                m = re.search(r"server accepts handled requests\s*\n\s*(\d+)\s+(\d+)\s+(\d+)", body or "")
+                if m:  # nginx stub_status (not Prometheus format): the third number is requests
+                    counters["requests"] = float(m.group(3))
                 for line in (body or "").splitlines():
                     if line.startswith("#") or not line.strip():
                         continue
                     name = re.split(r"[ {]", line, 1)[0]
-                    if name in self.COUNTERS:
+                    kind = self.COUNTERS.get(name)
+                    if not kind:  # generic: any *_requests_total, *_commands_total / *_commands_processed_total, *_xact_commit
+                        kind = ("requests" if re.search(r"(^|_)requests_total$", name) else
+                                "commands" if re.search(r"_commands(_processed)?_total$", name) else
+                                "commits" if name.endswith("_xact_commit") else None)
+                    if kind:
                         try:
-                            counters[self.COUNTERS[name]] = counters.get(self.COUNTERS[name], 0.0) + float(line.rsplit(" ", 1)[-1])
+                            counters[kind] = counters.get(kind, 0.0) + float(line.rsplit(" ", 1)[-1])
                         except ValueError:
                             pass
                 self.events["metrics"].append({"pod": meta["pod"], "workload": meta["workload"], "tier": meta["tier"], "port": port,
