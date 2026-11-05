@@ -41,7 +41,7 @@ Each matching event is a finding with the observed event, the decision it broke 
 
 ## Notes
 
-A workload that genuinely needs a documented exception declares it on the pod with adr.platform/exceptions: "ADR-0016=<reason>"; the finding stays in the report as a note, not counted.
+A workload that genuinely needs an exception gets it from the platform, never from its own manifest: the platform records "<namespace>/<workload>: ADR-0016=<reason>" in the exceptions ConfigMap, and the finding then stays in the report as a note (not counted, owner platform).
 
 ## Reproduce without the tooling
 

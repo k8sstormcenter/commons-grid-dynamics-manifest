@@ -72,9 +72,11 @@ note the finding carries.
 | `probe` | request the evaluator made | workload, tier, url, path, auth (none/garbage/valid), status, via, route, reachable |
 | `content` | page-serving pod | serves_page, bytes, js_bytes, js_kb, scripts, functions, api_paths, n_api_paths, backend_calls, auth_markers, client_state, marker_* |
 
-A pod annotation `adr.platform/exceptions: "ADR-0018=<reason>; ADR-0016=<reason>"` turns that ADR's
-findings on the pod into declared exceptions: kept in the report as notes (`counted=false`,
-`note: declared exception …`), never making the ADR VIOLATED.
+Exceptions are platform-granted only — the application author (a citizen coder) cannot exempt their
+own workload. The platform writes ConfigMap `sbob-library/adr-exceptions` (env `ADR_EXCEPTIONS_NS`,
+`ADR_EXCEPTIONS_NAME`) with `data["<namespace>/<workload>"] = "ADR-0018=<reason>; ADR-0016=<reason>"`
+(`<namespace>/*` for the whole namespace). Matching findings stay in the report as notes
+(`counted=false`, `owner=platform`, `note: platform-granted exception …`), never making the ADR VIOLATED.
 
 Runtime events are filtered to pods that exist now and to detections that postdate the pod
 (the fix-and-verify loop must not see the previous revision's evidence); identical detections
@@ -90,6 +92,7 @@ are collapsed with a count. Peers are resolved against every pod in the cluster.
 | `ADR_ITERATION` | iteration number written to `adr_findings` (loop.sh sets it) |
 | `ADR_PX_HOST` | `hostname` value on `adr_findings` rows (Pixie's ClickHouse source filters on it; default `edge4-server`) |
 | `ADR_SPEC` | alternative `adrs.yaml` |
+| `ADR_EXCEPTIONS_NS` / `ADR_EXCEPTIONS_NAME` | the platform's exceptions ConfigMap (default `sbob-library/adr-exceptions`) |
 
 ## MCP
 

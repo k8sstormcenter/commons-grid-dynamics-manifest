@@ -6,7 +6,7 @@
 
 ## Decision
 
-No workload is privileged, mounts a host path (least of all the container runtime socket), shares the host PID or IPC namespace, adds a dangerous capability, or loads a kernel module. The cloud metadata API (169.254.169.254) is unreachable from application pods by NetworkPolicy. A pod that genuinely requires one of these declares it on the pod with adr.platform/exceptions: "ADR-0018=<reason>"; the finding then stays as a note, not counted.
+No workload is privileged, mounts a host path (least of all the container runtime socket), shares the host PID or IPC namespace, adds a dangerous capability, or loads a kernel module. The cloud metadata API (169.254.169.254) is unreachable from application pods by NetworkPolicy. A pod that genuinely requires one of these has a platform-granted exception ("<namespace>/<workload>: ADR-0018=<reason>" in the platform's exceptions ConfigMap); the finding then stays as a note, not counted.
 
 ## Why
 

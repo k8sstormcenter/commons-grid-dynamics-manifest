@@ -19,11 +19,7 @@ base_url() {  # the browser's entry point: ingress host (https) if one fronts th
 import sys, os
 sys.path.insert(0, "compliance"); import evidence, time
 ns = sys.argv[1]
-ev = evidence.Evidence.__new__(evidence.Evidence)
-ev.ns, ev.since, ev.until, ev.scan_path, ev.warmup_s, ev.notes = ns, 0, int(time.time()), None, 0, []
-ev.markers = evidence.CODE_MARKERS
-ev.events = {k: [] for k in ("pod","spec","svc","ingress","netpol","profile","secret","rbac","runtime","wire","scan","scan_present","probe","content")}
-ev._cluster(); ev._pods(); ev._network_objects()
+ev = evidence.Evidence.static(ns)
 row = next(e for e in ev.events["ingress"] if e["scope"] == "namespace")
 if row["fronts_frontend"] and row["hosts"]:
     print("https://" + row["hosts"][0]); sys.exit()

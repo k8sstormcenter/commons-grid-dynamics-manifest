@@ -219,8 +219,9 @@ ADR-0016:
     are delivered; the Secret objects show who shares what and for how long; the static scan finds
     values that were written down.
   notes: >-
-    A workload that genuinely needs a documented exception declares it on the pod with
-    adr.platform/exceptions: "ADR-0016=<reason>"; the finding stays in the report as a note, not counted.
+    A workload that genuinely needs an exception gets it from the platform, never from its own manifest:
+    the platform records "<namespace>/<workload>: ADR-0016=<reason>" in the exceptions ConfigMap, and the
+    finding then stays in the report as a note (not counted, owner platform).
 
 ADR-0017:
   status: proposed
@@ -244,8 +245,8 @@ ADR-0018:
     No workload is privileged, mounts a host path (least of all the container runtime socket),
     shares the host PID or IPC namespace, adds a dangerous capability, or loads a kernel module. The
     cloud metadata API (169.254.169.254) is unreachable from application pods by NetworkPolicy. A pod
-    that genuinely requires one of these declares it on the pod with
-    adr.platform/exceptions: "ADR-0018=<reason>"; the finding then stays as a note, not counted.
+    that genuinely requires one of these has a platform-granted exception ("<namespace>/<workload>:
+    ADR-0018=<reason>" in the platform's exceptions ConfigMap); the finding then stays as a note, not counted.
   why: >-
     Each of these is a step from a container to the node or the cloud account: a privileged
     container or a host path is the node; a kernel module is the kernel; the metadata API is the

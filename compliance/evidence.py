@@ -35,6 +35,10 @@ HTTP_PORTS = (80, 8080, 3000, 8000, 5000, 9000, 443, 8443)
 SECRET_ENV = re.compile(r"(PASS|PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIAL|CLIENT_SECRET|DSN|CONNECTION_?STRING)", re.I)
 DANGEROUS_CAPS = {"SYS_ADMIN", "SYS_MODULE", "NET_ADMIN", "SYS_PTRACE", "SYS_RAWIO", "BPF", "DAC_READ_SEARCH", "SYS_BOOT", "NET_RAW", "ALL"}
 METADATA_IP = "169.254.169.254"
+# platform-granted exceptions: ConfigMap <ADR_EXCEPTIONS_NS>/<ADR_EXCEPTIONS_NAME>, data key "<namespace>/<workload>" (or "<namespace>/*"),
+# value "ADR-0018=<reason>; ADR-0016=<reason>". Only the platform writes it; the application cannot exempt itself.
+EXCEPTIONS_NS = os.environ.get("ADR_EXCEPTIONS_NS", "sbob-library")
+EXCEPTIONS_NAME = os.environ.get("ADR_EXCEPTIONS_NAME", "adr-exceptions")
 INGRESS_NAMESPACES = {"traefik", "ingress-nginx", "istio-system", "istio-ingress", "envoy-gateway-system", "nginx-gateway", "kong"}
 # content markers (regexes over the client code a frontend serves) come from adrs.yaml
 # (content_markers) so the ADR declares them; these are the fallback.
@@ -99,6 +103,7 @@ class Evidence:
                                        "runtime", "wire", "scan", "scan_present", "probe", "content")}
         self.notes = []
         self._cluster()
+        self._exceptions()
         self._pods()
         self._network_objects()
         self._profiles()
@@ -110,6 +115,18 @@ class Evidence:
         if live:
             self._content()
             self._probes()
+
+    @classmethod
+    def static(cls, ns):
+        """The cluster-side snapshot only (pods, specs, network objects, exceptions): no ClickHouse, no probes.
+        Used by the traffic driver and load.sh to find the application's entry point."""
+        ev = cls.__new__(cls)
+        ev.ns, ev.since, ev.until, ev.scan_path, ev.warmup_s = ns, 0, int(datetime.datetime.now().timestamp()), None, 0
+        ev.markers, ev.notes = CODE_MARKERS, []
+        ev.events = {k: [] for k in ("pod", "spec", "svc", "ingress", "netpol", "profile", "secret", "rbac",
+                                     "runtime", "wire", "scan", "scan_present", "probe", "content")}
+        ev._cluster(); ev._exceptions(); ev._pods(); ev._network_objects()
+        return ev
 
     # ---- cluster-wide lookups
     def _cluster(self):
@@ -157,6 +174,19 @@ class Evidence:
             return ("departed" if self.departed else "unknown"), None, None, None
         return "external", None, None, None
 
+    # ---- platform-granted exceptions
+    def _exceptions(self):
+        self.exceptions = {}
+        cm = kget(["-n", EXCEPTIONS_NS, "get", "configmap", EXCEPTIONS_NAME], items=False)
+        for key, val in (cm.get("data") or {}).items():
+            d = {}
+            for part in str(val).split(";"):
+                if "=" in part:
+                    k, v = part.split("=", 1); d[k.strip()] = v.strip()
+            self.exceptions[key.strip()] = d
+        if self.exceptions:
+            self.notes.append(f"platform exceptions read from {EXCEPTIONS_NS}/{EXCEPTIONS_NAME}: {sorted(self.exceptions)}")
+
     # ---- pods and containers
     def _pods(self):
         self.pods = [p for p in kget(["-n", self.ns, "get", "pods"]) if p["status"].get("phase") == "Running"]
@@ -199,10 +229,7 @@ class Evidence:
                     if hg or tcp:
                         port = (hg or tcp).get("port")
                         probe_ports.add(str(named.get(port, port)))
-            exc = {}
-            for part in (md.get("annotations", {}) or {}).get("adr.platform/exceptions", "").split(";"):
-                if "=" in part:
-                    k, v = part.split("=", 1); exc[k.strip()] = v.strip()
+            exc = {**self.exceptions.get(f"{self.ns}/*", {}), **self.exceptions.get(f"{self.ns}/{owner or name}", {})}
             ev = {"pod": name, "workload": owner or name, "tier": tier, "profile": prof, "bound": prof in profiles,
                   "service_account": sp.get("serviceAccountName", "default"), "exceptions": exc,
                   "ip": st.get("podIP"), "node": sp.get("nodeName"), "start": start,
@@ -512,7 +539,7 @@ class Evidence:
                 "peer_kind": kind, "peer_pod": ppod, "peer_tier": ptier, "peer_ns": pns,
                 "kubelet_probe": kind == "node" and str(peer_port) in meta["probe_ports"],
                 "domain": args.get("domain"), "path": args.get("path"), "exec": args.get("exec"),
-                "capability": args.get("capability"),
+                "capability": args.get("capability"), "exceptions": meta["exceptions"],
             }
             if direction:
                 a, b = (ev["tier"], ptier) if direction == "egress" else (ptier, ev["tier"])
@@ -567,7 +594,7 @@ class Evidence:
                 "kubelet_probe": kind == "node" and server and str(r["local_port"]) in meta["probe_ports"],
                 "health_path": r["path"] in HEALTH_PATHS,
                 "via_ingress": kind == "ingress", "egress_external": (not server) and kind == "external",
-                "test_case": r.get("test_case") or "",
+                "test_case": r.get("test_case") or "", "exceptions": meta["exceptions"],
                 "edge": [src_tier, dst_tier],
             })
 

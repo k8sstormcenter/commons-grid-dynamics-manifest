@@ -30,12 +30,7 @@ def get(url, host=None, resolve=None):
 
 def main():
     ns, rounds = sys.argv[1], int(sys.argv[2]) if len(sys.argv) > 2 else 3
-    ev = evidence.Evidence.__new__(evidence.Evidence)
-    ev.ns, ev.since, ev.until, ev.scan_path, ev.warmup_s = ns, 0, int(time.time()), None, 0
-    ev.events = {k: [] for k in ("pod", "spec", "svc", "ingress", "netpol", "profile", "secret", "rbac", "runtime", "wire", "scan", "scan_present", "probe", "content")}
-    ev.markers = evidence.CODE_MARKERS
-    ev.notes = []
-    ev._cluster(); ev._pods(); ev._network_objects()
+    ev = evidence.Evidence.static(ns)
     nsrow = next(e for e in ev.events["ingress"] if e["scope"] == "namespace")
     targets = []   # (base_url, host header, resolve, label)
     if nsrow["fronts_frontend"] and nsrow["hosts"]:

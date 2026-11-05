@@ -1,22 +1,22 @@
 {
  "schema": "adr-kpi/v2",
- "generated_at": "2026-11-05T01:40:53+00:00",
+ "generated_at": "2026-11-05T02:06:48+00:00",
  "cluster": "bobexample",
  "namespace": "commons-grid",
  "source": {
   "clickhouse": "10.42.1.142",
   "table": "forensic_db.kubescape_logs",
   "window": {
-   "from": 1793842793,
-   "to": 1793842844,
-   "seconds": 51
+   "from": 1793844133,
+   "to": 1793844401,
+   "seconds": 268
   },
-  "rows": 6,
+  "rows": 3,
   "rules_seen": [
-   "R0002",
-   "R0012"
+   "R0002"
   ],
-  "wire_rows": 2,
+  "wire_rows": 0,
+  "test_cases": [],
   "static": "static controls from /tmp/AllControls-commons-grid.json",
   "warmup_s": 210,
   "notes": [],
@@ -26,11 +26,11 @@
    "svc": 1,
    "ingress": 1,
    "netpol": 1,
-   "profile": 6,
+   "profile": 5,
    "secret": 1,
    "rbac": 1,
-   "runtime": 2,
-   "wire": 1,
+   "runtime": 3,
+   "wire": 0,
    "scan": 47,
    "scan_present": 1,
    "probe": 0,
@@ -111,7 +111,7 @@
    "summary": "No plaintext on the wire",
    "status": "VIOLATED",
    "compliant": false,
-   "violations": 2
+   "violations": 1
   },
   {
    "kpi": "ADR-0012",
@@ -170,7 +170,7 @@
    "title": "Tiers are strictly layered; the presentation tier never reaches the data tier",
    "verified_by": "sbob.egress, sbob.ingress, netpol",
    "status": "NOT_OBSERVED",
-   "proof": "\u2713 tier pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 586s vs warm-up 210s, sensor rows in window: 6 | \u2717 frontend->backend flow seen on the wire: 0 (needs \u22651)",
+   "proof": "\u2713 tier pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 267s vs warm-up 210s, sensor rows in window: 3 | \u2717 frontend->backend flow seen on the wire: 0 (needs \u22651)",
    "violations": 0,
    "findings": []
   },
@@ -180,7 +180,7 @@
    "title": "The data tier never initiates outbound connections",
    "verified_by": "sbob.egress, netpol",
    "status": "NOT_OBSERVED",
-   "proof": "\u2717 data-tier pods governed and past warm-up: 0/0 pod(s) governed (no pods in these tiers), sensor rows in window: 6",
+   "proof": "\u2717 data-tier pods governed and past warm-up: 0/0 pod(s) governed (no pods in these tiers), sensor rows in window: 3",
    "violations": 0,
    "findings": []
   },
@@ -190,7 +190,7 @@
    "title": "Only the backend tier holds cluster credentials",
    "verified_by": "sbob.opens, kyverno.validate",
    "status": "VIOLATED",
-   "proof": "\u2713 non-backend containers' automountServiceAccountToken read from the pod spec: 1 | \u2713 pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 586s vs warm-up 210s, sensor rows in window: 6 | findings: 1 counted, 0 discounted",
+   "proof": "\u2713 non-backend containers' automountServiceAccountToken read from the pod spec: 1 | \u2713 pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 267s vs warm-up 210s, sensor rows in window: 3 | findings: 1 counted, 0 discounted",
    "violations": 1,
    "findings": [
     {
@@ -226,7 +226,7 @@
    "title": "Images are immutable at runtime; nothing is installed after build",
    "verified_by": "kyverno.validate, sbob.execs",
    "status": "VIOLATED",
-   "proof": "\u2713 all pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 586s vs warm-up 210s, sensor rows in window: 6 | \u2713 containers' root filesystem mode and volume mounts read from the pod spec: 1 | findings: 1 counted, 0 discounted",
+   "proof": "\u2713 all pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 267s vs warm-up 210s, sensor rows in window: 3 | \u2713 containers' root filesystem mode and volume mounts read from the pod spec: 1 | findings: 1 counted, 0 discounted",
    "violations": 1,
    "findings": [
     {
@@ -278,7 +278,7 @@
      "process": null,
      "node": "edge4-server",
      "decision_broken": "an unrecognised image was given a real tier instead of tier=unclassified (admission port fallback)",
-     "observed": "assigned_by=port, tier=frontend, images=[\"ghcr.io/k8sstormcenter/commons-grid-dynamics:latest\"]",
+     "observed": "assigned_by=port, tier=frontend, images=[\"ghcr.io/k8sstormcenter/commons-grid-dynamics:9ab1489587f7030ef70dbc3b67e170e8bd9f027f@sha256:229396b5c08f1dc6044363818c87836f79d7e9f67dfa62fd88136d86413bbcff\"]",
      "fix": "platform: remove the port-based rules from the admission policy so an unrecognised image lands in quarantine; application: declare app.kubernetes.io/tier",
      "owner": "platform",
      "counted": true,
@@ -359,7 +359,7 @@
    "title": "A profile may not wildcard above a path another rule protects",
    "verified_by": "sbob.authoring",
    "status": "COMPLIANT",
-   "proof": "\u2713 ContainerProfiles read back from the cluster (GET each): 6 [name=replicaset-commons-grid-dynamics-6f7c4b488b-web-233a-5b38 \u00d71; name=tier-backend \u00d71; name=tier-database \u00d71; name=tier-frontend \u00d71; name=tier-middleware \u00d71; name=tier-unclassified \u00d71]",
+   "proof": "\u2713 ContainerProfiles read back from the cluster (GET each): 5 [name=tier-backend \u00d71; name=tier-database \u00d71; name=tier-frontend \u00d71; name=tier-middleware \u00d71; name=tier-unclassified \u00d71]",
    "violations": 0,
    "findings": []
   },
@@ -379,35 +379,9 @@
    "title": "No plaintext on the wire",
    "verified_by": "platform-ingress, cert-manager, app-config",
    "status": "VIOLATED",
-   "proof": "\u2717 the frontend is fronted by a platform ingress/gateway object: 0 (needs \u22651) | \u2717 traffic reached the frontend through the ingress controller: 0 (needs \u22651) | \u2713 application flows captured on the wire (Pixie): 2 [proto=http src_tier=None dst_tier=frontend encrypted=0 \u00d71] | findings: 2 counted, 0 discounted",
-   "violations": 2,
+   "proof": "\u2717 the frontend is fronted by a platform ingress/gateway object: 0 (needs \u22651) | \u2717 traffic reached the frontend through the ingress controller: 0 (needs \u22651) | \u2717 application flows captured on the wire (Pixie): 0 (needs \u22651) | findings: 1 counted, 0 discounted",
+   "violations": 1,
    "findings": [
-    {
-     "adr": "ADR-0011",
-     "source": "wire",
-     "evidence_class": "observed",
-     "workload": "commons-grid-dynamics",
-     "container": null,
-     "tier": "frontend",
-     "rule": null,
-     "rule_name": null,
-     "severity": null,
-     "process": null,
-     "node": null,
-     "decision_broken": "reached over plaintext bypassing the platform ingress (NodePort, direct Service or pod access)",
-     "observed": "role=server, proto=http, encrypted=0, remote_kind=driver, health_path=False, dst_pod=commons-grid-dynamics-566dd5dbdb-sdsn7, port=80, path=/, count=2",
-     "fix": "expose the frontend only through the platform ingress/gateway with TLS; ClusterIP Services",
-     "owner": "application",
-     "counted": true,
-     "note": "",
-     "unattributed": false,
-     "timestamp": null,
-     "count": 2,
-     "evidence": {
-      "table": "forensic_db.http_events",
-      "rows": 2
-     }
-    },
     {
      "adr": "ADR-0011",
      "source": "svc",
@@ -612,7 +586,7 @@
    "title": "Images are pinned by digest, signed; no latest",
    "verified_by": "kyverno.validate, cosign",
    "status": "VIOLATED",
-   "proof": "\u2713 container images checked for @sha256 pins: 1 [pinned=False \u00d71] | \u2713 kubescape scan supplied (image signature): 1 | findings: 1 counted, 0 discounted",
+   "proof": "\u2713 container images checked for @sha256 pins: 1 [pinned=True \u00d71] | \u2713 kubescape scan supplied (image signature): 1 | findings: 1 counted, 0 discounted",
    "violations": 1,
    "findings": [
     {
@@ -627,9 +601,9 @@
      "severity": null,
      "process": null,
      "node": null,
-     "decision_broken": "image is not pinned by digest",
-     "observed": "pinned=False, container=web, image=ghcr.io/k8sstormcenter/commons-grid-dynamics:latest, tag=latest, pull_policy=Always, running_digest=sha256:3d5c02d39263a503f38cd90f19791af35ddfda0fe4b00a76e1fbe6f398823b22",
-     "fix": "image: <repo>:<tag>@sha256:<digest>; imagePullPolicy: IfNotPresent; sign with cosign",
+     "decision_broken": "pull policy Always on a pinned image",
+     "observed": "pinned=True, pull_policy=Always, container=web, image=ghcr.io/k8sstormcenter/commons-grid-dynamics:9ab1489587f7030ef70dbc3b67e170e8bd9f027f@sha256:229396b5c08f1dc6044363818c87836f79d7e9f67dfa62fd88136d86413bbcff",
+     "fix": "imagePullPolicy: IfNotPresent",
      "owner": "application",
      "counted": true,
      "note": "",
@@ -787,26 +761,26 @@
  ],
  "workloads": [
   {
-   "pod": "commons-grid-dynamics-566dd5dbdb-sdsn7",
+   "pod": "commons-grid-dynamics-6f7c4b488b-bf452",
    "workload": "commons-grid-dynamics",
    "tier": "frontend",
    "profile": "tier-frontend",
    "bound": true,
-   "ip": "10.42.2.214",
+   "ip": "10.42.2.228",
    "node": "edge4-server",
-   "age_s": 586,
+   "age_s": 267,
    "warm": true,
    "declared_tier": null,
    "assigned_by": "port",
    "image_known": false,
    "images": [
-    "ghcr.io/k8sstormcenter/commons-grid-dynamics:latest"
+    "ghcr.io/k8sstormcenter/commons-grid-dynamics:9ab1489587f7030ef70dbc3b67e170e8bd9f027f@sha256:229396b5c08f1dc6044363818c87836f79d7e9f67dfa62fd88136d86413bbcff"
    ]
   }
  ],
  "content": [
   {
-   "pod": "commons-grid-dynamics-566dd5dbdb-sdsn7",
+   "pod": "commons-grid-dynamics-6f7c4b488b-bf452",
    "workload": "commons-grid-dynamics",
    "tier": "frontend",
    "serves_page": true,
