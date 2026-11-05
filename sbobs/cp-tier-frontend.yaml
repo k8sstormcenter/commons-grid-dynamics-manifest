@@ -3,7 +3,8 @@
 # Deliberately generic. The platform cannot know which application a team will ship,
 # so this allows every process and every file a workload of this tier might use.
 # What it still says no to:
-#   - the network edges of the tier (who it may call, who may call it)
+#   - the network edges of the tier (who it may call, who may call it), on any port:
+#     the platform cannot know an application's ports; NetworkPolicy owns them
 #   - capabilities outside CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH, CAP_NET_ADMIN, CAP_NET_BIND_SERVICE
 #   - everything listed in the subtract fragments composed on top (see compose.sh)
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
@@ -26,7 +27,7 @@ spec:
     - CAP_NET_ADMIN
     - CAP_NET_BIND_SERVICE
   egress:
-    - {dns: "", dnsNames: null, identifier: backend-tier, ipAddress: "", namespaceSelector: null, podSelector: {matchLabels: {app.kubernetes.io/tier: backend}}, ports: [{name: TCP-8080, port: 8080, protocol: TCP}, {name: TCP-8000, port: 8000, protocol: TCP}, {name: TCP-3000, port: 3000, protocol: TCP}, {name: TCP-5000, port: 5000, protocol: TCP}, {name: TCP-8443, port: 8443, protocol: TCP}], type: ""}
+    - {dns: "", dnsNames: null, identifier: backend-tier, ipAddress: "", namespaceSelector: null, podSelector: {matchLabels: {app.kubernetes.io/tier: backend}}, ports: null, type: ""}
     - {dns: "", dnsNames: null, identifier: dns, ipAddress: "", namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}, ports: [{name: UDP-53, port: 53, protocol: UDP}, {name: TCP-53, port: 53, protocol: TCP}], type: ""}
   endpoints: null
   execs:
