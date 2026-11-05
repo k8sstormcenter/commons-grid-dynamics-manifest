@@ -64,9 +64,9 @@ ADR-0005:
   status: accepted
   applies_to: every pod in an application namespace
   decision: >-
-    Every workload declares its tier in its manifest; admission binds the pod to that tier's profile.
-    A pod that declares no tier is a finding even when admission can recognise its image. A pod
-    that declares no tier and whose image is not recognised is labelled tier=unclassified and bound
+    A workload declares its tier in its manifest, or admission assigns one from an image it
+    recognises; either way the pod is bound to that tier's profile. A pod that declares no tier and
+    whose image is not recognised is labelled tier=unclassified and bound
     to a deliberately narrow profile: DNS egress only, no ingress. Quarantine, not exemption — an
     unclassified workload that does anything on the network produces a finding whose fix is
     "tell the platform what this is".

@@ -176,9 +176,10 @@ adrs:
         broken: pod carries no app.kubernetes.io/tier label
         fix: label the workload with app.kubernetes.io/tier
       - source: pod
-        assigned_by: [image, port]
-        broken: the workload did not declare its tier; admission assigned one
-        fix: declare app.kubernetes.io/tier in the pod template (frontend|backend|database|middleware)
+        assigned_by: port
+        owner: platform
+        broken: an unrecognised image was given a real tier instead of tier=unclassified (admission port fallback)
+        fix: "platform: remove the port-based rules from the admission policy so an unrecognised image lands in quarantine; application: declare app.kubernetes.io/tier"
         show: [tier, images]
       - source: pod
         bound: false
