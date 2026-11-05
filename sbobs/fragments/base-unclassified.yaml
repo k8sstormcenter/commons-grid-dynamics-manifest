@@ -17,8 +17,10 @@ spec:
   architectures: [amd64]
   capabilities: []
   execs:
-  - {path: /*}
-  - {path: '*'}
+  - path: /*
+    args: [⋯, ⋯⋯]
+  - path: '*'
+    args: [⋯, ⋯⋯]
   opens:
   - path: /
     flags: [O_CLOEXEC, O_DIRECTORY, O_NONBLOCK, O_PATH, O_RDONLY]

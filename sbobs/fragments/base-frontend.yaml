@@ -17,8 +17,10 @@ spec:
   architectures: [amd64]
   capabilities: [CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH, CAP_NET_ADMIN, CAP_NET_BIND_SERVICE]
   execs:
-  - {path: /*}
-  - {path: '*'}
+  - path: /*
+    args: [⋯, ⋯⋯]
+  - path: '*'
+    args: [⋯, ⋯⋯]
   opens:
   - path: /
     flags: [O_CLOEXEC, O_DIRECTORY, O_NONBLOCK, O_PATH, O_RDONLY]

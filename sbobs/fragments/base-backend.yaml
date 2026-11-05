@@ -6,6 +6,7 @@
 #   - the network edges of the tier (who it may call, who may call it)
 #   - capabilities outside CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH, CAP_NET_ADMIN, CAP_NET_BIND_SERVICE
 #   - everything listed in the subtract fragments composed on top (see compose.sh)
+# The ServiceAccount token is listed by name as well: the token rule does not take it from /*.
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
 kind: ContainerProfile
 metadata:
@@ -17,9 +18,19 @@ spec:
   architectures: [amd64]
   capabilities: [CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH, CAP_NET_ADMIN, CAP_NET_BIND_SERVICE]
   execs:
-  - {path: /*}
-  - {path: '*'}
+  - path: /*
+    args: [⋯, ⋯⋯]
+  - path: '*'
+    args: [⋯, ⋯⋯]
   opens:
+  - path: /var/run/secrets/kubernetes.io/serviceaccount/token
+    flags: [O_CLOEXEC, O_RDONLY]
+  - path: /run/secrets/kubernetes.io/serviceaccount/token
+    flags: [O_CLOEXEC, O_RDONLY]
+  - path: /var/run/secrets/kubernetes.io/serviceaccount/⋯/token
+    flags: [O_CLOEXEC, O_RDONLY]
+  - path: /run/secrets/kubernetes.io/serviceaccount/⋯/token
+    flags: [O_CLOEXEC, O_RDONLY]
   - path: /
     flags: [O_CLOEXEC, O_DIRECTORY, O_NONBLOCK, O_PATH, O_RDONLY]
   - path: /*

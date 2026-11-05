@@ -31,8 +31,8 @@ spec:
     - {dns: "", dnsNames: null, identifier: dns, ipAddress: "", namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}, ports: [{name: UDP-53, port: 53, protocol: UDP}, {name: TCP-53, port: 53, protocol: TCP}], type: ""}
   endpoints: null
   execs:
-    - {path: '*'}
-    - {path: /*}
+    - {args: [⋯, ⋯⋯], path: '*'}
+    - {args: [⋯, ⋯⋯], path: /*}
   identifiedCallStacks: null
   imageID: ""
   imageTag: ""
