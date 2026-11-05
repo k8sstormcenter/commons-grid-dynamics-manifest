@@ -15,8 +15,8 @@ const IDP_HOST_HEADER = __ENV.IDP_HOST_HEADER || 'localhost:8080';
 
 // Per-minute rates (each iteration issues the requests noted below):
 //   frontend:    1 request/iteration  x 5/s  = 300 frontend req/min
-//   runs:        3 API calls (3 DB)   x 4/s  = 720 backend req/min, 720 DB commands/min
-//   simulations: 3 API calls (3 DB)   x 2/s  = 360 backend req/min, 360 DB commands/min
+//   runs:        3 API calls x 4/s  = 720 backend req/min
+//   simulations: 3 API calls x 2/s  = 360 backend req/min
 export const options = {
   insecureSkipTLSVerify: true,
   scenarios: {
