@@ -124,8 +124,6 @@ spec:
               value: redis://commons-grid-db:6379
             - name: HOME
               value: /tmp
-            - name: JWKS_URI
-              value: http://zitadel.zitadel.svc:8080/oauth/v2/keys
             - name: CLIENT_ID
               valueFrom:
                 secretKeyRef:
@@ -479,7 +477,7 @@ data:
         client_id: CFG.clientId,
         redirect_uri: location.origin + '/callback',
         response_type: 'code',
-        scope: 'openid urn:zitadel:iam:org:project:id:' + CFG.projectId + ':aud',
+        scope: 'openid profile',
         code_challenge: challenge,
         code_challenge_method: 'S256',
       });
@@ -1484,6 +1482,7 @@ data:
     // Commons Grid Dynamics API - runs the simulation engine, datasets live in redis
     // now the API needs a login token from the platform IdP (Zitadel)
     const http = require('http');
+    const https = require('https');
     const redis = require('redis');
     const jwt = require('jsonwebtoken');
     const jwksClient = require('jwks-rsa');
@@ -1499,14 +1498,27 @@ data:
     const PROJECT_ID = process.env.PROJECT_ID || '';
     const TOKEN_ENDPOINT = process.env.TOKEN_ENDPOINT || '';
     const ISSUER = process.env.ISSUER || TOKEN_ENDPOINT.replace('/oauth/v2/token', '');
-    const JWKS_URI = process.env.JWKS_URI || 'http://zitadel.zitadel.svc:8080/oauth/v2/keys';
     
     const client = redis.createClient({ url: REDIS_URL });
     client.on('error', e => console.log('redis error', e.message));
     
-    // check the bearer token against the IdP's public keys
-    const keys = jwksClient({ jwksUri: JWKS_URI });
+    // get a URL and parse the JSON (http or https)
+    function getJson(url) {
+      return new Promise((resolve, reject) => {
+        const lib = url.startsWith('https') ? https : http;
+        lib.get(url, res => { let s = ''; res.on('data', c => { s += c; }); res.on('end', () => { try { resolve(JSON.parse(s)); } catch (e) { reject(e); } }); }).on('error', reject);
+      });
+    }
+    
+    // find the IdP's key endpoint from its OIDC discovery document
+    let keys = null;
+    async function setupKeys() {
+      const doc = await getJson(ISSUER + '/.well-known/openid-configuration');
+      console.log('jwks_uri', doc.jwks_uri);
+      keys = jwksClient({ jwksUri: doc.jwks_uri });
+    }
     function getKey(header, cb) {
+      if (!keys) return cb(new Error('keys not loaded'));
       keys.getSigningKey(header.kid, (err, key) => cb(err, key && key.getPublicKey()));
     }
     function checkAuth(req) {
@@ -1570,6 +1582,7 @@ data:
     
     async function main() {
       await client.connect();
+      try { await setupKeys(); } catch (e) { console.log('oidc discovery failed:', e.message); }
       // seed the database with the datasets if they are not there yet
       for (const k of ['presets', 'abuses', 'packages']) {
         if (!(await client.exists(k))) { await client.set(k, JSON.stringify(DATA[k])); console.log('seeded', k); }

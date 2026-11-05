@@ -20,7 +20,7 @@ export function setup() {
     grant_type: 'client_credentials',
     client_id: CLIENT_ID,
     client_secret: CLIENT_SECRET,
-    scope: 'openid urn:zitadel:iam:org:project:id:' + PROJECT_ID + ':aud',
+    scope: 'openid profile',
   };
   const r = http.post(TOKEN_ENDPOINT, body, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
   let token = '';
