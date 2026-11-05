@@ -3,6 +3,8 @@ import { check } from 'k6';
 
 const BASE_URL = __ENV.BASE_URL || 'http://commons-grid-dynamics.commons-grid.svc';
 const DURATION = __ENV.DURATION || '60s';
+// Bearer token for the API (ADR-0010). Supplied from a Secret, never stored in this repo.
+const ACCESS_TOKEN = __ENV.ACCESS_TOKEN || '';
 
 // Per-minute rates (each iteration issues the requests noted below):
 //   frontend:    1 request/iteration  x 5/s  = 300 frontend req/min
@@ -27,11 +29,13 @@ export const options = {
 };
 
 function headers(testCase) {
-  return {
+  const h = {
     'User-Agent': 'adr-driver/k6',
     'X-Test-Case': testCase,
     'Content-Type': 'application/json',
   };
+  if (ACCESS_TOKEN) h['Authorization'] = 'Bearer ' + ACCESS_TOKEN;
+  return h;
 }
 
 export function frontend() {

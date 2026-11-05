@@ -1,0 +1,148 @@
+# Commons Grid Dynamics - load generator: runs the k6 suite continuously in-cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: commons-grid-load
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-suite
+  namespace: commons-grid-load
+data:
+  k6.js: |
+    import http from 'k6/http';
+    import { check } from 'k6';
+
+    const BASE_URL = __ENV.BASE_URL || 'http://commons-grid-dynamics.commons-grid.svc';
+    const DURATION = __ENV.DURATION || '60s';
+    // Bearer token for the API (ADR-0010). Supplied from a Secret, never stored in this repo.
+    const ACCESS_TOKEN = __ENV.ACCESS_TOKEN || '';
+
+    // Per-minute rates (each iteration issues the requests noted below):
+    //   frontend:    1 request/iteration  x 5/s  = 300 frontend req/min
+    //   runs:        3 API calls (3 DB)   x 4/s  = 720 backend req/min, 720 DB commands/min
+    //   simulations: 3 API calls (3 DB)   x 2/s  = 360 backend req/min, 360 DB commands/min
+    export const options = {
+      insecureSkipTLSVerify: true,
+      scenarios: {
+        frontend: {
+          executor: 'constant-arrival-rate', exec: 'frontend',
+          rate: 5, timeUnit: '1s', duration: DURATION, preAllocatedVUs: 5, maxVUs: 20,
+        },
+        runs: {
+          executor: 'constant-arrival-rate', exec: 'runs',
+          rate: 4, timeUnit: '1s', duration: DURATION, preAllocatedVUs: 5, maxVUs: 30,
+        },
+        simulations: {
+          executor: 'constant-arrival-rate', exec: 'simulations',
+          rate: 2, timeUnit: '1s', duration: DURATION, preAllocatedVUs: 4, maxVUs: 20,
+        },
+      },
+    };
+
+    function headers(testCase) {
+      const h = {
+        'User-Agent': 'adr-driver/k6',
+        'X-Test-Case': testCase,
+        'Content-Type': 'application/json',
+      };
+      if (ACCESS_TOKEN) h['Authorization'] = 'Bearer ' + ACCESS_TOKEN;
+      return h;
+    }
+
+    export function frontend() {
+      const r = http.get(`${BASE_URL}/`, { headers: headers('frontend-page') });
+      check(r, { 'frontend page 200': (x) => x.status === 200 });
+    }
+
+    export function runs() {
+      const body = JSON.stringify({ name: 'k6 run', params: { N: 10, M: 5, P: 2, hpc: 20 } });
+      const created = http.post(`${BASE_URL}/api/runs`, body, { headers: headers('save-run') });
+      check(created, { 'run saved': (x) => x.status === 201 });
+
+      const list = http.get(`${BASE_URL}/api/runs`, { headers: headers('list-runs') });
+      check(list, { 'runs listed': (x) => x.status === 200 });
+
+      const id = created.status === 201 ? created.json('id') : 1;
+      const loaded = http.get(`${BASE_URL}/api/runs/${id}`, { headers: headers('load-run') });
+      check(loaded, { 'run loaded': (x) => x.status === 200 || x.status === 404 });
+    }
+
+    export function simulations() {
+      const body = JSON.stringify({ name: 'k6 simulation', body: { params: { N: 10, M: 5, P: 2, hpc: 20 } } });
+      const created = http.post(`${BASE_URL}/api/simulations`, body, { headers: headers('save-simulation') });
+      check(created, { 'simulation saved': (x) => x.status === 201 });
+
+      const list = http.get(`${BASE_URL}/api/simulations`, { headers: headers('list-simulations') });
+      check(list, { 'simulations listed': (x) => x.status === 200 });
+
+      const id = created.status === 201 ? created.json('id') : 1;
+      const loaded = http.get(`${BASE_URL}/api/simulations/${id}`, { headers: headers('load-simulation') });
+      check(loaded, { 'simulation loaded': (x) => x.status === 200 || x.status === 404 });
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k6-loadgen
+  namespace: commons-grid-load
+  labels:
+    app: k6-loadgen
+    app.kubernetes.io/tier: loadgen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k6-loadgen
+  template:
+    metadata:
+      labels:
+        app: k6-loadgen
+        app.kubernetes.io/tier: loadgen
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: k6
+          image: grafana/k6@sha256:3e4186aea62e11a45560bfc51e19eeafe82fc07ce069c78aff44b7ff893d9a5e
+          imagePullPolicy: IfNotPresent
+          args: ["run", "/scripts/k6.js"]
+          env:
+            - name: BASE_URL
+              value: "http://commons-grid-dynamics.commons-grid.svc"
+            - name: DURATION
+              value: "24h"
+            - name: ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: loadgen-token
+                  key: token
+          resources:
+            requests: {cpu: 200m, memory: 128Mi}
+            limits: {cpu: "1", memory: 256Mi}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 12345
+            runAsGroup: 12345
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: [ALL]
+          livenessProbe:
+            tcpSocket: {port: 6565}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: scripts
+          configMap:
+            name: k6-suite
+        - name: tmp
+          emptyDir: {}

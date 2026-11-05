@@ -1,0 +1,295 @@
+# Commons Grid Dynamics - iteration 2: security envelope and authentication.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: commons-grid
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commons-grid-dynamics
+  namespace: commons-grid
+  labels:
+    app: commons-grid-dynamics
+    app.kubernetes.io/tier: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commons-grid-dynamics
+  template:
+    metadata:
+      labels:
+        app: commons-grid-dynamics
+        app.kubernetes.io/tier: frontend
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: site-config
+          image: ghcr.io/k8sstormcenter/commons-grid-dynamics:c435797f695f8c5bdcdad5d870017124a0d1b6f5@sha256:401f42dc9cfc42ee90be861ec9dcaef7f8dbfe68f53ec09f14c217e97251b0eb
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - |
+              cp /usr/share/nginx/html/index.html /site/index.html && printf '{"issuer":"%s","authorizationEndpoint":"%s","tokenEndpoint":"%s","clientId":"%s","projectId":"%s"}' "$IDP_ISSUER" "$IDP_AUTHORIZATION_ENDPOINT" "$IDP_TOKEN_ENDPOINT" "$IDP_CLIENT_ID" "$IDP_PROJECT_ID" > /site/config.json
+          env:
+            - name: IDP_ISSUER
+              value: "http://localhost:8080"
+            - name: IDP_AUTHORIZATION_ENDPOINT
+              value: "http://localhost:8080/oauth/v2/authorize"
+            - name: IDP_TOKEN_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: idp-client
+                  key: token_endpoint
+            - name: IDP_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: idp-client
+                  key: client_id
+            - name: IDP_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: idp-client
+                  key: project_id
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: [ALL]
+            runAsUser: 101
+            runAsGroup: 101
+          volumeMounts:
+            - name: site
+              mountPath: /site
+      containers:
+        - name: web
+          image: ghcr.io/k8sstormcenter/commons-grid-dynamics:c435797f695f8c5bdcdad5d870017124a0d1b6f5@sha256:401f42dc9cfc42ee90be861ec9dcaef7f8dbfe68f53ec09f14c217e97251b0eb
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9113
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: [ALL]
+            runAsUser: 101
+            runAsGroup: 101
+          livenessProbe:
+            httpGet: {path: /, port: 8080}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /, port: 8080}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          volumeMounts:
+            - name: site
+              mountPath: /usr/share/nginx/html
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /var/cache/nginx
+      volumes:
+        - name: site
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commons-grid-dynamics
+  namespace: commons-grid
+spec:
+  type: ClusterIP
+  selector:
+    app: commons-grid-dynamics
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commons-grid-backend
+  namespace: commons-grid
+  labels:
+    app: commons-grid-backend
+    app.kubernetes.io/tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commons-grid-backend
+  template:
+    metadata:
+      labels:
+        app: commons-grid-backend
+        app.kubernetes.io/tier: backend
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: api
+          image: ghcr.io/k8sstormcenter/commons-grid-dynamics-backend:c435797f695f8c5bdcdad5d870017124a0d1b6f5@sha256:4104f29b9661a413e4441532fd566a4f3fdebd532dadbc3d485e872d9ffe228c
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              value: "host=commons-grid-db port=5432 user=postgres dbname=postgres"
+            - name: IDP_ISSUER
+              value: "http://localhost:8080"
+            - name: IDP_JWKS_URL
+              value: "http://zitadel.zitadel.svc:8080/oauth/v2/keys"
+            - name: IDP_HOST_HEADER
+              value: "localhost:8080"
+            - name: IDP_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: idp-client
+                  key: project_id
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: metrics
+              containerPort: 9100
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: [ALL]
+            runAsUser: 10001
+            runAsGroup: 10001
+          livenessProbe:
+            httpGet: {path: /api/health, port: 8000}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /api/health, port: 8000}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commons-grid-backend
+  namespace: commons-grid
+spec:
+  type: ClusterIP
+  selector:
+    app: commons-grid-backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commons-grid-db
+  namespace: commons-grid
+  labels:
+    app: commons-grid-db
+    app.kubernetes.io/tier: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commons-grid-db
+  template:
+    metadata:
+      labels:
+        app: commons-grid-db
+        app.kubernetes.io/tier: database
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: postgres
+          image: postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_HOST_AUTH_METHOD
+              value: trust
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: [ALL]
+            runAsUser: 70
+            runAsGroup: 70
+          livenessProbe:
+            tcpSocket: {port: 5432}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket: {port: 5432}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commons-grid-db
+  namespace: commons-grid
+spec:
+  type: ClusterIP
+  selector:
+    app: commons-grid-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
