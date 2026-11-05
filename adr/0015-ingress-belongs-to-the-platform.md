@@ -16,7 +16,7 @@ The network policy and the tier profile describe the same edges from two sides: 
 
 `COMPLIANT` needs every item below (see [README](README.md#how-to-read-an-adr) for how statuses are decided):
 
-* **Services, pod templates and NetworkPolicies of the namespace examined** — at least 1: the namespace's NetworkPolicy set — scope namespace.
+* **Services, pod templates and NetworkPolicies of the namespace examined** — at least 1: the namespace's NetworkPolicy set — namespace-wide.
 
 ## What a violation looks like
 
@@ -25,13 +25,15 @@ Each matching event is a finding with the observed event, the decision it broke 
 * **workload opens its own ingress** — a Service — type NodePort/LoadBalancer.
 * **hostNetwork** — a container in the pod spec — hostNetwork set.
 * **hostPort** — a container in the pod spec — hostPort set.
-* **no default-deny NetworkPolicy in the namespace** — the namespace's NetworkPolicy set — scope namespace, no default-deny ingress+egress.
+* **no platform ingress/gateway object fronts the frontend** — an ingress/gateway object — namespace-wide, none fronting the frontend.
+* **no default-deny NetworkPolicy in the namespace** — the namespace's NetworkPolicy set — namespace-wide, no default-deny ingress+egress.
 
 ## How to fix
 
 * workload opens its own ingress: type: ClusterIP; Ingress via the platform ingress class
 * hostNetwork: remove hostNetwork
 * hostPort: remove hostPort; use a Service
+* no platform ingress/gateway object fronts the frontend: expose the frontend through the platform ingress class (Ingress / IngressRoute / HTTPRoute) with TLS; never a NodePort
 * no default-deny NetworkPolicy in the namespace: default-deny ingress+egress; allow ingress-controller->frontend, frontend->backend, backend->database, backend->IdP, monitoring->metrics, all->DNS
 
 ## Reproduce without the tooling
@@ -41,6 +43,8 @@ Each matching event is a finding with the observed event, the decision it broke 
 kubectl -n <ns> get svc -o custom-columns='NAME:.metadata.name,TYPE:.spec.type,PORTS:.spec.ports[*].port,NODEPORTS:.spec.ports[*].nodePort'
 # spec
 kubectl -n <ns> get pods -o json | jq '.items[].spec.containers[] | {name, image, imagePullPolicy, ports, securityContext, resources, livenessProbe, readinessProbe}'
+# ingress
+kubectl -n <ns> get ingress,ingressroutes.traefik.io,httproutes.gateway.networking.k8s.io -o yaml | grep -n -E 'kind:|host|tls|entryPoints|parentRefs'
 # netpol
 kubectl -n <ns> get netpol -o yaml
 ```
@@ -52,6 +56,7 @@ kubectl -n <ns> get netpol -o yaml
 | svc | type NodePort/LoadBalancer | workload opens its own ingress |
 | spec | hostNetwork set | hostNetwork |
 | spec | hostPort set | hostPort |
-| netpol | scope namespace, no default-deny ingress+egress | no default-deny NetworkPolicy in the namespace |
+| ingress | namespace-wide, none fronting the frontend | no platform ingress/gateway object fronts the frontend |
+| netpol | namespace-wide, no default-deny ingress+egress | no default-deny NetworkPolicy in the namespace |
 
 *Generated from `compliance/adrs.yaml` and `compliance/adr_text.yaml` by `compliance/adr_docs.py`. Edit those, not this file.*

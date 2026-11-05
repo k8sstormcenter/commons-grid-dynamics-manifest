@@ -22,6 +22,7 @@ SOURCE_WORDS = {
     "runtime": "the runtime sensor saw", "wire": "a captured flow", "spec": "a container in the pod spec",
     "pod": "a running pod", "svc": "a Service", "ingress": "an Ingress", "netpol": "the namespace's NetworkPolicy set",
     "profile": "a stored ContainerProfile", "policy": "the admission policy", "scan": "the static scan flagged",
+    "ingress": "an ingress/gateway object",
     "probe": "an evaluator HTTP probe", "content": "the page the frontend serves", "scan_present": "the kubescape scan",
 }
 RULE_WORDS = {
@@ -41,6 +42,8 @@ FIELD_WORDS = {
     "wildcards": "wildcard entries", "js_bytes": "client code bytes", "n_solvers": "solvers defined in the page",
     "n_datasets": "datasets embedded in the page", "client_state": "browser-storage uses", "backend_calls": "backend call sites",
     "auth_markers": "authentication markers", "auth": "Authorization", "status": "HTTP status",
+    "via_ingress": "via the ingress controller", "egress_external": "outbound to outside the cluster", "fronts_frontend": "fronting the frontend",
+    "role": "direction", "kind": "kind",
 }
 # (field, value) -> phrase; booleans and None rendered as statements, not "= True/False"
 PHRASE = {
@@ -56,6 +59,9 @@ PHRASE = {
     ("host_network", True): "hostNetwork set", ("exposed", True): "type NodePort/LoadBalancer",
     ("declared_known", True): "applied manifest readable", ("has_port_fallback", True): "a port-based rule present",
     ("route", True): "an existing route", ("present", True): "supplied", ("encrypted", 0): "plaintext",
+    ("role", "server"): "inbound", ("role", "client"): "outbound", ("fronts_frontend", False): "none fronting the frontend",
+    ("fronts_frontend", True): "fronting the frontend", ("egress_external", True): "outbound to outside the cluster",
+    ("scope", "namespace"): "namespace-wide", ("scope", "object"): "per object",
     ("host_ports", "nonempty"): "hostPort set", ("plaintext_ports", "nonempty"): "a plaintext port exposed",
 }
 
@@ -115,6 +121,10 @@ def mapping_key(pred):
     if src == "wire":
         if pred.get("path"):
             return f"captured GET {pred['path']}" + (" from outside monitoring" if "remote_ns" in pred else "")
+        if pred.get("role") == "server":
+            return f"captured inbound from {lst(pred.get('remote_kind', '*'))}" + (" plaintext" if pred.get("encrypted") == 0 else "")
+        if pred.get("egress_external"):
+            return "captured outbound to outside the cluster" + (" plaintext" if pred.get("encrypted") == 0 else "")
         return f"captured flow {lst(pred.get('src_tier', '*'))}→{lst(pred.get('dst_tier', '*'))}" + (" plaintext" if pred.get("encrypted") == 0 else "")
     return ", ".join(phrase(k, v) for k, v in pred.items() if k not in RESERVED)
 
@@ -125,7 +135,7 @@ REPRO = {
     "spec": "kubectl -n <ns> get pods -o json | jq '.items[].spec.containers[] | {{name, image, imagePullPolicy, ports, securityContext, resources, livenessProbe, readinessProbe}}'",
     "pod": "kubectl -n <ns> get pods -o custom-columns='POD:.metadata.name,TIER:.metadata.labels.app\\.kubernetes\\.io/tier,PROFILE:.metadata.labels.kubescape\\.io/user-defined-profile,START:.status.startTime'",
     "svc": "kubectl -n <ns> get svc -o custom-columns='NAME:.metadata.name,TYPE:.spec.type,PORTS:.spec.ports[*].port,NODEPORTS:.spec.ports[*].nodePort'",
-    "ingress": "kubectl -n <ns> get ingress -o jsonpath='{{range .items[*]}}{{.metadata.name}} tls={{.spec.tls}}{{\"\\n\"}}{{end}}'",
+    "ingress": "kubectl -n <ns> get ingress,ingressroutes.traefik.io,httproutes.gateway.networking.k8s.io -o yaml | grep -n -E 'kind:|host|tls|entryPoints|parentRefs'",
     "netpol": "kubectl -n <ns> get netpol -o yaml",
     "profile": "kubectl -n <ns> get containerprofiles.spdx.softwarecomposition.kubescape.io <name> -o json | jq '[.spec.opens[].path]'   # GET each; LIST returns an empty spec",
     "policy": "kubectl get clusterpolicy assign-workload-tier -o yaml | grep -n 'name: tier-by-'",
@@ -155,7 +165,7 @@ def render_adr(a):
             L.append(f"* **{p.get('what', p['source'])}** — at least {p.get('min', 1)}: {describe(p)}.")
     L += ["", "## What a violation looks like", "", "Each matching event is a finding with the observed event, the decision it broke and the fix; discounted events stay as notes (`counted=false`).", ""]
     for p in a.get("violated", []):
-        tag = " *(platform, informational)*" if p.get("counted") is False or p.get("owner") == "platform" else ""
+        tag = " *(informational, not counted)*" if p.get("counted") is False else (" *(owner: platform)*" if p.get("owner") == "platform" else "")
         L.append(f"* **{p['broken']}**{tag} — {describe(p)}.")
     if any(p["source"] == "content" for p in a.get("violated", []) + a.get("observed", [])):
         L += ["", "Markers counted in the served client code (declared in `compliance/adrs.yaml`, app-neutral):", ""]
@@ -217,7 +227,7 @@ def render_readme():
         n = a["id"].split("-")[1]
         L.append(f"| [{n}]({n}-{slug(a['summary'])}.md) | {a['summary']} | {a['title']} | {', '.join(a.get('enforced_by', []))} |")
     L += ["", "## Prescribed edges", "",
-          "Traffic on these edges is never a violation of a tier ADR; a profile that alerts on one has a gap, reported under ADR-0005 as the platform's.", "",
+          "Traffic on these edges is never a violation of a tier ADR. A profile that alerts on one has a gap: that is a violation of ADR-0005 owned by the platform (`owner=platform`), because allowed traffic alerting means the profile was not declared as the architecture prescribes.", "",
           "```", *[f"{EDGE_WORDS.get(a, a)} -> {EDGE_WORDS.get(b, b)}" for a, b in SPEC.get("topology", [])], "```", "",
           "## Discounts", "", "| name | what | effect |", "|---|---|---|"]
     seen = {}

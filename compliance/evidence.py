@@ -31,6 +31,7 @@ MUTABLE_TAGS = {"latest", "main", "master", "dev", "stable", "edge", "nightly"}
 PLAINTEXT_PORTS = {80, 8000, 8080, 3000, 5432, 6379, 3306, 27017}
 HEALTH_PATHS = {"/health", "/healthz", "/readyz", "/livez", "/api/health"}
 HTTP_PORTS = (80, 8080, 3000, 8000, 5000, 9000, 443, 8443)
+INGRESS_NAMESPACES = {"traefik", "ingress-nginx", "istio-system", "istio-ingress", "envoy-gateway-system", "nginx-gateway", "kong"}
 # content markers (regexes over the client code a frontend serves) come from adrs.yaml
 # (content_markers / definition_markers) so the ADR declares them; these are the fallback.
 CODE_MARKERS = {
@@ -149,7 +150,7 @@ class Evidence:
             return "pod", m["pod"], m["tier"], self.ns
         if ip in self.all_pods:
             m = self.all_pods[ip]
-            return "pod", m["pod"], f"ns:{m['ns']}", m["ns"]
+            return ("ingress" if m["ns"] in INGRESS_NAMESPACES else "pod"), m["pod"], f"ns:{m['ns']}", m["ns"]
         if self.in_pod_cidr(ip):
             return ("departed" if self.departed else "unknown"), None, None, None
         return "external", None, None, None
@@ -268,9 +269,38 @@ class Evidence:
                 "plaintext_ports": [p for p in ports if p in PLAINTEXT_PORTS],
                 "exposed": s["spec"].get("type") in ("NodePort", "LoadBalancer"),
                 "selector": s["spec"].get("selector") or {}})
+        frontend_svcs = set()
+        for e in self.events["svc"]:
+            sel = e["selector"]
+            if sel and any(all(p["labels"].get(k) == v for k, v in sel.items()) and p["tier"] == "frontend" for p in self.events["pod"]):
+                frontend_svcs.add(e["name"])
+        objs = []
         for i in kget(["-n", self.ns, "get", "ingress"]):
-            self.events["ingress"].append({"name": i["metadata"]["name"], "tls": bool(i["spec"].get("tls")),
-                                           "hosts": [r.get("host") for r in i["spec"].get("rules", [])]})
+            sp = i["spec"]
+            objs.append({"kind": "Ingress", "name": i["metadata"]["name"], "tls": bool(sp.get("tls")),
+                         "hosts": [r.get("host") for r in sp.get("rules", []) if r.get("host")],
+                         "services": [pa["backend"]["service"]["name"] for r in sp.get("rules", []) for pa in (r.get("http") or {}).get("paths", []) if (pa.get("backend") or {}).get("service")]})
+        for i in kget(["-n", self.ns, "get", "ingressroutes.traefik.io"]):
+            sp = i["spec"]
+            objs.append({"kind": "IngressRoute", "name": i["metadata"]["name"], "tls": bool(sp.get("tls")) or "websecure" in (sp.get("entryPoints") or []),
+                         "hosts": sorted({h for r in sp.get("routes", []) for h in re.findall(r"Host\(`([^`]+)`\)", r.get("match", ""))}),
+                         "services": [sv["name"] for r in sp.get("routes", []) for sv in r.get("services", [])]})
+        gateways = {}
+        for g in kget(["get", "gateways.gateway.networking.k8s.io", "-A"]):
+            gateways[(g["metadata"]["namespace"], g["metadata"]["name"])] = any(l.get("protocol") == "HTTPS" for l in g["spec"].get("listeners", []))
+        for i in kget(["-n", self.ns, "get", "httproutes.gateway.networking.k8s.io"]):
+            sp = i["spec"]
+            parents = [(pr.get("namespace", self.ns), pr.get("name")) for pr in sp.get("parentRefs", [])]
+            objs.append({"kind": "HTTPRoute", "name": i["metadata"]["name"], "tls": any(gateways.get(pr, False) for pr in parents) or None,
+                         "hosts": sp.get("hostnames", []), "services": [b["name"] for r in sp.get("rules", []) for b in r.get("backendRefs", [])]})
+        for o in objs:
+            o["fronts_frontend"] = any(sv in frontend_svcs for sv in o["services"])
+            o["scope"] = "object"
+            self.events["ingress"].append(o)
+        fronting = [o for o in objs if o["fronts_frontend"]]
+        self.events["ingress"].append({"kind": "namespace", "name": self.ns, "scope": "namespace", "objects": len(objs),
+                                       "fronts_frontend": bool(fronting), "tls": all(o["tls"] for o in fronting) if fronting else None,
+                                       "hosts": sorted({h for o in fronting for h in o["hosts"]}), "frontend_services": sorted(frontend_svcs)})
         pols = kget(["-n", self.ns, "get", "netpol"])
         deny_in = deny_out = False
         for np_ in pols:
@@ -408,15 +438,15 @@ class Evidence:
         s, u = self.since, self.until
         sql = f"""
         SELECT 'http' proto, pod, trace_role, remote_addr, local_port, encrypted, req_method method, req_path path, resp_status status,
-               count() c, max(req_headers LIKE '%{UA}%') evaluator
+               count() c, max(req_headers LIKE '%{UA}%') evaluator, max(req_headers LIKE '%adr-driver/%') driver
         FROM forensic_db.http_events WHERE namespace='{self.ns}' AND time_ BETWEEN fromUnixTimestamp64Nano({s}000000000) AND fromUnixTimestamp64Nano({u}000000000)
         GROUP BY ALL
         UNION ALL
-        SELECT 'pgsql', pod, trace_role, remote_addr, local_port, encrypted, '', substring(req,1,40), 0, count(), 0
+        SELECT 'pgsql', pod, trace_role, remote_addr, local_port, encrypted, '', substring(req,1,40), 0, count(), 0, 0
         FROM forensic_db.pgsql_events WHERE namespace='{self.ns}' AND time_ BETWEEN fromUnixTimestamp64Nano({s}000000000) AND fromUnixTimestamp64Nano({u}000000000)
         GROUP BY ALL
         UNION ALL
-        SELECT 'conn', pod, trace_role, remote_addr, remote_port, ssl, '', '', 0, count(), 0
+        SELECT 'conn', pod, trace_role, remote_addr, remote_port, ssl, '', '', 0, count(), 0, 0
         FROM forensic_db.conn_stats WHERE namespace='{self.ns}' AND time_ BETWEEN fromUnixTimestamp64Nano({s}000000000) AND fromUnixTimestamp64Nano({u}000000000)
         GROUP BY ALL"""
         try:
@@ -433,7 +463,9 @@ class Evidence:
             if ip in ("127.0.0.1", "::1"):
                 continue
             kind, ppod, ptier, pns = self.peer(ip)
-            if int(r["evaluator"] or 0):
+            if int(r["driver"] or 0):
+                kind = "driver"      # the browser stand-in (compliance/drive.py): application traffic, from the evaluator's host
+            elif int(r["evaluator"] or 0):
                 kind = "evaluator"
             server = int(r["trace_role"]) == 2
             src_pod, src_tier, dst_pod, dst_tier = (ppod, ptier, pod, meta["tier"]) if server else (pod, meta["tier"], ppod, ptier)
@@ -444,6 +476,7 @@ class Evidence:
                 "encrypted": int(r["encrypted"]), "method": r["method"], "path": r["path"], "status": int(r["status"]), "count": int(r["c"]),
                 "kubelet_probe": kind == "node" and server and str(r["local_port"]) in meta["probe_ports"],
                 "health_path": r["path"] in HEALTH_PATHS,
+                "via_ingress": kind == "ingress", "egress_external": (not server) and kind == "external",
                 "edge": [src_tier, dst_tier],
             })
 
@@ -503,8 +536,10 @@ class Evidence:
             if not port or meta["tier"] not in ("frontend", None, "unclassified"):
                 continue
             scheme = self.scheme_of(p, port)
-            st, n, _, body = http(f"{scheme}://{meta['ip']}:{port}/", timeout=10)
-            if st is None or not body or "<html" not in body.lower():
+            st, n, hdr, body = http(f"{scheme}://{meta['ip']}:{port}/", timeout=10)
+            # a page is what the server says is HTML, or what looks like it (fragments without <html> included)
+            is_html = (hdr.get("Content-Type", "") or "").lower().startswith("text/html") or any(t in (body or "").lower() for t in ("<html", "<!doctype", "<script"))
+            if st is None or not body or not is_html:
                 self.events["content"].append({"pod": meta["pod"], "workload": meta["workload"], "tier": meta["tier"], "serves_page": False, "status": st})
                 continue
             scripts = "".join(re.findall(r"<script[^>]*>(.*?)</script>", body, re.S))

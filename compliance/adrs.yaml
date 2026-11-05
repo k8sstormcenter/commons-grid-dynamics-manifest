@@ -13,7 +13,7 @@
 warmup_s: 210          # network rules are silent before a pod is this old (ADR-0005, measured)
 
 # inter-tier edges the architecture prescribes: traffic on them is never a violation of a
-# tier ADR; a profile that alerts on them has a gap (platform) — surfaced under ADR-0005
+# tier ADR; a profile that alerts on them has a gap — a VIOLATION of ADR-0005 owned by the platform
 topology:
   - [frontend, backend]
   - [backend, database]
@@ -51,12 +51,6 @@ discounts:
     source: [wire]
     remote_kind: evaluator
     note: the evaluator's own request
-  - name: prescribed_edge
-    source: [runtime]
-    rule: [R0011, R0012]
-    edge_prescribed: true
-    owner: platform
-    note: this edge is prescribed by the architecture; the tier profile does not declare it (platform/bobctl), not an application violation
   - name: departed_peer
     source: [runtime, wire]
     peer_kind: departed
@@ -194,6 +188,11 @@ adrs:
         broken: pod carries no app.kubernetes.io/tier label
         fix: label the workload with app.kubernetes.io/tier
       - source: pod
+        assigned_by: [image, port]
+        broken: the workload did not declare its tier; admission assigned one
+        fix: declare app.kubernetes.io/tier in the pod template (frontend|backend|database|middleware)
+        show: [tier, images]
+      - source: pod
         bound: false
         broken: pod points at a profile that does not exist in its namespace (unwatched)
         fix: wait for clone-tier-sbobs or fix the kubescape.io/user-defined-profile label
@@ -210,8 +209,9 @@ adrs:
       - source: runtime
         rule: [R0011, R0012]
         edge_prescribed: true
-        broken: the tier profile does not declare an edge the architecture prescribes
-        fix: "platform: declare the inter-tier edge (podSelector app.kubernetes.io/tier) in the tier profile egress/ingress"
+        owner: platform
+        broken: the tier profile does not declare an edge the architecture prescribes, so allowed traffic alerts (platform gap)
+        fix: "platform: declare the inter-tier edge (podSelector app.kubernetes.io/tier) in the tier profile egress/ingress (bobctl)"
         show: [edge, peer_ip, peer_port]
     observed:
       - source: pod
@@ -335,7 +335,6 @@ adrs:
       - source: policy
         has_port_fallback: true
         owner: platform
-        counted: false
         broken: the admission policy still carries a containerPort fallback
         fix: "platform: remove the tier-by-port rules from kyverno/02-label-tiers.yaml"
         show: [port_rules]
@@ -389,25 +388,41 @@ adrs:
   - id: ADR-0011
     summary: No plaintext on the wire
     title: No plaintext on the wire
-    enforced_by: [cert-manager, app-config]
+    enforced_by: [platform-ingress, cert-manager, app-config]
     violated:
+      - source: wire
+        role: server
+        proto: http
+        encrypted: 0
+        remote_kind: ingress
+        health_path: false
+        broken: the platform ingress reaches the frontend over plaintext (TLS stops at the ingress instead of continuing to the pod)
+        fix: serve TLS on the frontend from a platform-issued certificate; point the ingress/gateway at the TLS port
+        show: [dst_pod, port, path, count]
+      - source: wire
+        role: server
+        proto: http
+        encrypted: 0
+        remote_kind: [driver, external, unknown]
+        health_path: false
+        broken: reached over plaintext bypassing the platform ingress (NodePort, direct Service or pod access)
+        fix: expose the frontend only through the platform ingress/gateway with TLS; ClusterIP Services
+        show: [dst_pod, port, path, remote_kind, count]
       - source: wire
         proto: [http, pgsql]
         encrypted: 0
-        remote_kind: {not: [evaluator, node]}
+        remote_kind: pod
         health_path: false
-        broken: plaintext on the wire
-        fix: serve TLS from a platform-issued certificate; clients verify; postgres ssl=on hostssl-only
+        broken: plaintext between tiers
+        fix: TLS from platform-issued certificates on every inter-tier hop; clients verify; postgres ssl=on hostssl-only
         show: [proto, src_pod, dst_pod, port, method, path, count]
       - source: wire
-        proto: [http]
+        egress_external: true
         encrypted: 0
-        remote_kind: node
-        kubelet_probe: false
-        health_path: false
-        broken: plaintext on the wire from a node address that is not a declared probe
-        fix: serve TLS; declare the probe if this is one
-        show: [src_pod, dst_pod, port, path, count]
+        proto: [http, pgsql]
+        broken: plaintext egress to outside the cluster
+        fix: use https/TLS for every external dependency
+        show: [src_pod, remote_ip, port, path, count]
       - source: svc
         exposed: true
         plaintext_ports: {empty: false}
@@ -415,10 +430,25 @@ adrs:
         fix: ClusterIP + Ingress with tls
         show: [type, plaintext_ports]
       - source: ingress
+        scope: object
+        fronts_frontend: true
         tls: false
-        broken: Ingress without TLS
-        fix: add spec.tls with a cert-manager issued secret
+        broken: the ingress/gateway object fronting the frontend has no TLS
+        fix: add TLS (spec.tls / websecure entrypoint / HTTPS listener) with a platform-issued certificate
+        show: [kind, name, hosts]
     observed:
+      - source: ingress
+        scope: namespace
+        fronts_frontend: true
+        min: 1
+        what: the frontend is fronted by a platform ingress/gateway object
+        group_by: [hosts, tls]
+      - source: wire
+        role: server
+        remote_kind: ingress
+        min: 1
+        what: traffic reached the frontend through the ingress controller
+        group_by: [dst_pod, port, encrypted]
       - source: wire
         proto: [http, pgsql, conn]
         remote_kind: {not: [evaluator]}
@@ -559,6 +589,12 @@ adrs:
         broken: hostPort
         fix: remove hostPort; use a Service
         show: [container, host_ports]
+      - source: ingress
+        scope: namespace
+        fronts_frontend: false
+        broken: no platform ingress/gateway object fronts the frontend
+        fix: expose the frontend through the platform ingress class (Ingress / IngressRoute / HTTPRoute) with TLS; never a NodePort
+        show: [objects, frontend_services]
       - source: netpol
         scope: namespace
         default_deny: false

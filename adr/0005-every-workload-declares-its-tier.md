@@ -6,7 +6,7 @@
 
 ## Decision
 
-Admission assigns a tier from the image name and binds the pod to that tier's profile. A pod that declares no tier and whose image is not recognised is labelled tier=unclassified and bound to a deliberately narrow profile: DNS egress only, no ingress. Quarantine, not exemption — an unclassified workload that does anything on the network produces a finding whose fix is "tell the platform what this is".
+Every workload declares its tier in its manifest; admission binds the pod to that tier's profile. A pod that declares no tier is a finding even when admission can recognise its image. A pod that declares no tier and whose image is not recognised is labelled tier=unclassified and bound to a deliberately narrow profile: DNS egress only, no ingress. Quarantine, not exemption — an unclassified workload that does anything on the network produces a finding whose fix is "tell the platform what this is".
 
 ## Why
 
@@ -23,18 +23,20 @@ A workload without a profile is unwatched, and unwatched looks exactly like clea
 Each matching event is a finding with the observed event, the decision it broke and the fix; discounted events stay as notes (`counted=false`).
 
 * **pod carries no app.kubernetes.io/tier label** — a running pod — no tier label.
+* **the workload did not declare its tier; admission assigned one** — a running pod — tier assigned by image or port.
 * **pod points at a profile that does not exist in its namespace (unwatched)** — a running pod — its profile missing in the namespace.
 * **the profile binding points nowhere; the container is unwatched** — the runtime sensor saw a profile binding that resolves to nothing.
 * **an unclassified workload acted outside the quarantine baseline** — the runtime sensor saw a process the profile does not list was launched or an outbound connection the tier profile does not allow or an inbound connection the tier profile does not allow — tier unclassified.
-* **the tier profile does not declare an edge the architecture prescribes** — the runtime sensor saw an outbound connection the tier profile does not allow or an inbound connection the tier profile does not allow — on a prescribed edge.
+* **the tier profile does not declare an edge the architecture prescribes, so allowed traffic alerts (platform gap)** *(owner: platform)* — the runtime sensor saw an outbound connection the tier profile does not allow or an inbound connection the tier profile does not allow — on a prescribed edge.
 
 ## How to fix
 
 * pod carries no app.kubernetes.io/tier label: label the workload with app.kubernetes.io/tier
+* the workload did not declare its tier; admission assigned one: declare app.kubernetes.io/tier in the pod template (frontend|backend|database|middleware)
 * pod points at a profile that does not exist in its namespace (unwatched): wait for clone-tier-sbobs or fix the kubescape.io/user-defined-profile label
 * the profile binding points nowhere; the container is unwatched: platform: clone the tier profile into the namespace
 * an unclassified workload acted outside the quarantine baseline: label the workload with app.kubernetes.io/tier so it gets a profile that fits it
-* the tier profile does not declare an edge the architecture prescribes: platform: declare the inter-tier edge (podSelector app.kubernetes.io/tier) in the tier profile egress/ingress
+* the tier profile does not declare an edge the architecture prescribes, so allowed traffic alerts (platform gap): platform: declare the inter-tier edge (podSelector app.kubernetes.io/tier) in the tier profile egress/ingress (bobctl)
 
 ## Notes
 
@@ -54,9 +56,10 @@ clickhouse-client -q "SELECT RuleID, message FROM forensic_db.kubescape_logs WHE
 | source | key | decision broken |
 |---|---|---|
 | pod | no tier label | pod carries no app.kubernetes.io/tier label |
+| pod | tier assigned by image or port | the workload did not declare its tier; admission assigned one |
 | pod | its profile missing in the namespace | pod points at a profile that does not exist in its namespace (unwatched) |
 | runtime | R1017 | the profile binding points nowhere; the container is unwatched |
 | runtime | R0001 / R0011 / R0012 | an unclassified workload acted outside the quarantine baseline |
-| runtime | R0011 / R0012 | the tier profile does not declare an edge the architecture prescribes |
+| runtime | R0011 / R0012 | the tier profile does not declare an edge the architecture prescribes, so allowed traffic alerts (platform gap) |
 
 *Generated from `compliance/adrs.yaml` and `compliance/adr_text.yaml` by `compliance/adr_docs.py`. Edit those, not this file.*

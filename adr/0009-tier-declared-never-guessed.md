@@ -23,7 +23,7 @@ A port fallback turned a monolith on port 80 into a trusted frontend with the le
 Each matching event is a finding with the observed event, the decision it broke and the fix; discounted events stay as notes (`counted=false`).
 
 * **tier was guessed from the container port** — a running pod — tier assigned by port.
-* **the admission policy still carries a containerPort fallback** *(platform, informational)* — the admission policy — a port-based rule present.
+* **the admission policy still carries a containerPort fallback** *(owner: platform)* — the admission policy — a port-based rule present.
 
 ## How to fix
 

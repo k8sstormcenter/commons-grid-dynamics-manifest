@@ -63,7 +63,8 @@ ADR-0005:
   status: accepted
   applies_to: every pod in an application namespace
   decision: >-
-    Admission assigns a tier from the image name and binds the pod to that tier's profile. A pod
+    Every workload declares its tier in its manifest; admission binds the pod to that tier's profile.
+    A pod that declares no tier is a finding even when admission can recognise its image. A pod
     that declares no tier and whose image is not recognised is labelled tier=unclassified and bound
     to a deliberately narrow profile: DNS egress only, no ingress. Quarantine, not exemption — an
     unclassified workload that does anything on the network produces a finding whose fix is
@@ -150,20 +151,25 @@ ADR-0010:
 
 ADR-0011:
   status: proposed
-  applies_to: every tier; every Service and Ingress
+  applies_to: every tier; every Service, Ingress/IngressRoute/HTTPRoute and Gateway
   decision: >-
-    Anything that leaves a pod is TLS: browser→frontend (terminated at the platform ingress),
-    frontend→backend, backend→database, backend→identity provider, backend→external. Workloads consume
-    platform-issued certificates; they do not generate or commit their own. The data tier requires TLS
-    so that a plaintext client fails instead of silently downgrading.
+    Anything that leaves a pod is TLS, and the application is hosted only behind the platform
+    ingress/gateway: browser→ingress is TLS (terminated by the platform), ingress→frontend continues
+    over TLS to the pod, frontend→backend, backend→database, backend→identity provider and
+    backend→external are TLS. Workloads consume platform-issued certificates; they do not generate or
+    commit their own. The data tier requires TLS so that a plaintext client fails instead of silently
+    downgrading. Nothing is reachable over plaintext by bypassing the ingress.
   why: >-
-    A bearer token on a plaintext wire is a token for everyone on the path. The wire tracer decodes
-    plaintext protocols and marks each captured request encrypted or not, per source, destination,
-    port and path; a kernel-TLS tap corroborates the encrypted side. Health probes and the
-    evaluator's own requests are discounted.
+    A bearer token on a plaintext wire is a token for everyone on the path. The hosting path is
+    observed, not assumed: the ingress/gateway object declares the TLS termination point, the wire
+    tracer shows whether the ingress reaches the frontend over TLS, whether anything reaches it
+    directly (NodePort, pod IP), whether tiers talk plaintext to each other, and whether any pod
+    sends plaintext outside the cluster. Health probes and the evaluator's own requests are discounted;
+    the traffic driver takes the browser's path through the ingress and counts as application traffic.
   notes: >-
-    Wire rows are exported around runtime alerts only; an edge with no captured rows is NOT_OBSERVED,
-    not COMPLIANT. Drive the application before judging.
+    The browser→ingress TLS handshake itself is not captured in the application namespace; it is judged
+    from the ingress object's TLS declaration (a kernel-TLS tap can corroborate it when exported). Wire
+    rows are exported around runtime alerts only; an edge with no captured rows is NOT_OBSERVED.
 
 ADR-0012:
   status: proposed

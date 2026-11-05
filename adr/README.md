@@ -47,7 +47,7 @@ Every ADR has the same sections: Decision · Why · How it is checked · What a 
 | [0008](0008-frontend-serves-presentation-only.md) | Frontend serves presentation only | The presentation tier serves presentation only | content-probe |
 | [0009](0009-tier-declared-never-guessed.md) | Tier declared, never guessed | A tier is declared, never guessed | kyverno.mutate |
 | [0010](0010-requests-authenticated-by-the-platform-idp.md) | Requests authenticated by the platform IdP | Every backend request is authenticated by the platform identity provider | app-code, idp-client |
-| [0011](0011-no-plaintext-on-the-wire.md) | No plaintext on the wire | No plaintext on the wire | cert-manager, app-config |
+| [0011](0011-no-plaintext-on-the-wire.md) | No plaintext on the wire | No plaintext on the wire | platform-ingress, cert-manager, app-config |
 | [0012](0012-metrics-on-a-dedicated-port.md) | Metrics on a dedicated port | Metrics are served on a dedicated port, scraped only by the platform | kyverno.validate, netpol |
 | [0013](0013-resources-probes-and-security-context-declared.md) | Resources, probes and security context declared | Every workload declares its envelope: resources, probes, security context | kyverno.validate |
 | [0014](0014-images-pinned-by-digest.md) | Images pinned by digest | Images are pinned by digest, signed; no latest | kyverno.validate, cosign |
@@ -55,7 +55,7 @@ Every ADR has the same sections: Decision · Why · How it is checked · What a 
 
 ## Prescribed edges
 
-Traffic on these edges is never a violation of a tier ADR; a profile that alerts on one has a gap, reported under ADR-0005 as the platform's.
+Traffic on these edges is never a violation of a tier ADR. A profile that alerts on one has a gap: that is a violation of ADR-0005 owned by the platform (`owner=platform`), because allowed traffic alerting means the profile was not declared as the architecture prescribes.
 
 ```
 frontend -> backend
@@ -74,7 +74,6 @@ every tier -> DNS
 |---|---|---|
 | kubelet_probe | kubelet probe from the node's address on a port this pod declares as a probe target; the tier profile does not list it (platform/bobctl) | counted=false, owner=platform |
 | evaluator / evaluator_wire | the evaluator's own request | counted=false, owner=application |
-| prescribed_edge | this edge is prescribed by the architecture; the tier profile does not declare it (platform/bobctl), not an application violation | counted=false, owner=platform |
 | departed_peer | the peer is not a live pod and pods of this namespace departed in the window (rollout); cannot be attributed | NOT_OBSERVED (cannot be attributed) |
 | exec_started | process started by exec (kubelet exec probe or kubectl exec), not by the image; use tcpSocket/httpGet probes | counted=false, owner=application |
 | tracer_parent | parent is the Pixie tracer; not the application's behaviour | counted=false, owner=application |
