@@ -1,0 +1,146 @@
+# Commons Grid Dynamics - iteration 1: frontend, backend and database tiers.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: commons-grid
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commons-grid-dynamics
+  namespace: commons-grid
+  labels:
+    app: commons-grid-dynamics
+    app.kubernetes.io/tier: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commons-grid-dynamics
+  template:
+    metadata:
+      labels:
+        app: commons-grid-dynamics
+        app.kubernetes.io/tier: frontend
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/k8sstormcenter/commons-grid-dynamics:2e83a4bd19c4a39bd9f4a93bca02ac5198ad99a8@sha256:f57d0fb55003b9f2b2e270f6a9071b42d1dc76dc89e31188834e2dcf4364ee0f
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+            - name: metrics
+              containerPort: 9113
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commons-grid-dynamics
+  namespace: commons-grid
+spec:
+  type: ClusterIP
+  selector:
+    app: commons-grid-dynamics
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commons-grid-backend
+  namespace: commons-grid
+  labels:
+    app: commons-grid-backend
+    app.kubernetes.io/tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commons-grid-backend
+  template:
+    metadata:
+      labels:
+        app: commons-grid-backend
+        app.kubernetes.io/tier: backend
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/k8sstormcenter/commons-grid-dynamics-backend:2e83a4bd19c4a39bd9f4a93bca02ac5198ad99a8@sha256:a98bfd99427460be6595fdff2bc46fc2cc56b1591d57ec40336a0ec8e8d19014
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              value: "host=commons-grid-db port=5432 user=postgres dbname=postgres"
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: metrics
+              containerPort: 9100
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commons-grid-backend
+  namespace: commons-grid
+spec:
+  type: ClusterIP
+  selector:
+    app: commons-grid-backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commons-grid-db
+  namespace: commons-grid
+  labels:
+    app: commons-grid-db
+    app.kubernetes.io/tier: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commons-grid-db
+  template:
+    metadata:
+      labels:
+        app: commons-grid-db
+        app.kubernetes.io/tier: database
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_HOST_AUTH_METHOD
+              value: trust
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commons-grid-db
+  namespace: commons-grid
+spec:
+  type: ClusterIP
+  selector:
+    app: commons-grid-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
