@@ -1,0 +1,393 @@
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ContainerProfile
+metadata:
+  annotations:
+    kubescape.io/managed-by: User
+    kubescape.io/sync-checksum: 920cc539a7ec04e55db5c0421aee3ba46b8447f8a2cd6709aba9b4175534e174
+  labels:
+    generate.kyverno.io/clone-source: ''
+  name: tier-middleware
+  namespace: sbob-library
+spec:
+  architectures: null
+  capabilities:
+  - CAP_CHOWN
+  - CAP_DAC_OVERRIDE
+  - CAP_FOWNER
+  - CAP_SETGID
+  - CAP_SETUID
+  egress:
+  - dns: ''
+    dnsNames: null
+    identifier: dns
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports:
+    - name: UDP-53
+      port: 53
+      protocol: UDP
+    - name: TCP-53
+      port: 53
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: database-tier
+    ipAddress: ''
+    namespaceSelector: null
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/tier: database
+    ports:
+    - name: TCP-5432
+      port: 5432
+      protocol: TCP
+    - name: TCP-3306
+      port: 3306
+      protocol: TCP
+    - name: TCP-27017
+      port: 27017
+      protocol: TCP
+    - name: TCP-6379
+      port: 6379
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: middleware-peers
+    ipAddress: ''
+    namespaceSelector: null
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/tier: middleware
+    ports:
+    - name: TCP-9092
+      port: 9092
+      protocol: TCP
+    - name: TCP-9093
+      port: 9093
+      protocol: TCP
+    - name: TCP-2181
+      port: 2181
+      protocol: TCP
+    - name: TCP-2888
+      port: 2888
+      protocol: TCP
+    - name: TCP-3888
+      port: 3888
+      protocol: TCP
+    - name: TCP-5672
+      port: 5672
+      protocol: TCP
+    - name: TCP-25672
+      port: 25672
+      protocol: TCP
+    - name: TCP-4222
+      port: 4222
+      protocol: TCP
+    - name: TCP-6222
+      port: 6222
+      protocol: TCP
+    - name: TCP-8222
+      port: 8222
+      protocol: TCP
+    type: ''
+  endpoints: null
+  execs:
+  - path: /bin/sh
+  - path: /usr/bin/sh
+  - path: /bin/dash
+  - path: /usr/bin/dash
+  - path: /bin/bash
+  - path: /usr/bin/bash
+  - path: /usr/bin/env
+  - path: /bin/env
+  - path: /usr/bin/id
+  - path: /bin/id
+  - path: /usr/bin/chown
+  - path: /bin/chown
+  - path: /usr/bin/mkdir
+  - path: /bin/mkdir
+  - path: /usr/bin/gosu
+  - path: /bin/gosu
+  - path: /usr/bin/su-exec
+  - path: /bin/su-exec
+  - path: /usr/bin/java
+  - path: /bin/java
+  - path: "/opt/java/\u22EF"
+  - path: "/opt/kafka/\u22EF"
+  - path: "/opt/bitnami/kafka/\u22EF"
+  - path: "/usr/lib/rabbitmq/\u22EF"
+  - path: "/opt/rabbitmq/\u22EF"
+  - path: "/usr/lib/erlang/\u22EF"
+  - path: /usr/local/bin/epmd
+  - path: /usr/local/bin/nats-server
+  - path: /nats-server
+  - path: /usr/local/bin/envoy
+  - path: /usr/bin/envoy
+  - path: /bin/envoy
+  - path: /usr/local/bin/redis-server
+  - path: /usr/bin/haproxy
+  - path: /bin/haproxy
+  - path: /usr/sbin/haproxy
+  - path: /sbin/haproxy
+  - path: "/app/\u22EF"
+  - path: "/usr/local/bin/\u22EF"
+  identifiedCallStacks: null
+  imageID: ''
+  imageTag: ''
+  ingress:
+  - dns: ''
+    dnsNames: null
+    identifier: backend-tier
+    ipAddress: ''
+    namespaceSelector: null
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/tier: backend
+    ports:
+    - name: TCP-9092
+      port: 9092
+      protocol: TCP
+    - name: TCP-5672
+      port: 5672
+      protocol: TCP
+    - name: TCP-4222
+      port: 4222
+      protocol: TCP
+    - name: TCP-6379
+      port: 6379
+      protocol: TCP
+    - name: TCP-15672
+      port: 15672
+      protocol: TCP
+    - name: TCP-8080
+      port: 8080
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: middleware-peers
+    ipAddress: ''
+    namespaceSelector: null
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/tier: middleware
+    ports:
+    - name: TCP-9092
+      port: 9092
+      protocol: TCP
+    - name: TCP-2181
+      port: 2181
+      protocol: TCP
+    - name: TCP-2888
+      port: 2888
+      protocol: TCP
+    - name: TCP-3888
+      port: 3888
+      protocol: TCP
+    - name: TCP-25672
+      port: 25672
+      protocol: TCP
+    - name: TCP-6222
+      port: 6222
+      protocol: TCP
+    type: ''
+  opens:
+  - flags: null
+    path: "/run/rabbitmq/\u22EF"
+  - flags: null
+    path: "/var/run/rabbitmq/\u22EF"
+  - flags: null
+    path: "/run/envoy/\u22EF"
+  - flags: null
+    path: "/var/run/envoy/\u22EF"
+  - flags: null
+    path: "/var/lib/\u22EF"
+  - flags: null
+    path: "/data/\u22EF"
+  - flags: null
+    path: "/bitnami/\u22EF"
+  - flags: null
+    path: "/opt/\u22EF"
+  - flags: null
+    path: "/etc/kafka/\u22EF"
+  - flags: null
+    path: "/etc/rabbitmq/\u22EF"
+  - flags: null
+    path: "/etc/envoy/\u22EF"
+  - flags: null
+    path: "/etc/haproxy/\u22EF"
+  - flags: null
+    path: "/etc/nats/\u22EF"
+  - flags: null
+    path: "/var/log/\u22EF"
+  - flags: null
+    path: "/tmp/\u22EF"
+  - flags: null
+    path: /dev/null
+  - flags: null
+    path: /dev/urandom
+  - flags: null
+    path: /dev/random
+  - flags: null
+    path: "/dev/shm/\u22EF"
+  - flags: null
+    path: /etc/passwd
+  - flags: null
+    path: /etc/group
+  - flags: null
+    path: /etc/hosts
+  - flags: null
+    path: /etc/hostname
+  - flags: null
+    path: /etc/resolv.conf
+  - flags: null
+    path: /etc/nsswitch.conf
+  - flags: null
+    path: /etc/localtime
+  - flags: null
+    path: "/etc/ssl/\u22EF"
+  - flags: null
+    path: "/etc/pki/\u22EF"
+  - flags: null
+    path: "/etc/ca-certificates/\u22EF"
+  - flags: null
+    path: "/lib/\u22EF"
+  - flags: null
+    path: "/lib64/\u22EF"
+  - flags: null
+    path: "/usr/lib/\u22EF"
+  - flags: null
+    path: "/usr/local/lib/\u22EF"
+  - flags: null
+    path: "/usr/share/\u22EF"
+  - flags: null
+    path: "/proc/\u22EF"
+  - flags: null
+    path: "/sys/\u22EF"
+  rulePolicies: null
+  seccompProfile:
+    spec:
+      defaultAction: ''
+  syscalls:
+  - accept
+  - accept4
+  - access
+  - arch_prctl
+  - bind
+  - brk
+  - capget
+  - chdir
+  - clock_nanosleep
+  - clone
+  - clone3
+  - close
+  - close_range
+  - connect
+  - dup2
+  - dup3
+  - epoll_create
+  - epoll_create1
+  - epoll_ctl
+  - epoll_pwait
+  - epoll_wait
+  - eventfd2
+  - execve
+  - exit
+  - exit_group
+  - faccessat
+  - faccessat2
+  - fadvise64
+  - fallocate
+  - fchdir
+  - fcntl
+  - fdatasync
+  - fstat
+  - fstatfs
+  - fsync
+  - futex
+  - getcwd
+  - getdents64
+  - getegid
+  - geteuid
+  - getgid
+  - getgroups
+  - getpeername
+  - getpid
+  - getppid
+  - getrandom
+  - getrlimit
+  - getsockname
+  - getsockopt
+  - gettid
+  - getuid
+  - io_setup
+  - ioctl
+  - listen
+  - lseek
+  - madvise
+  - membarrier
+  - mincore
+  - mkdir
+  - mkdirat
+  - mmap
+  - mprotect
+  - mremap
+  - munmap
+  - nanosleep
+  - newfstatat
+  - open
+  - openat
+  - openat2
+  - pipe
+  - pipe2
+  - poll
+  - prctl
+  - pread64
+  - prlimit64
+  - pwrite64
+  - read
+  - readlink
+  - readlinkat
+  - recvfrom
+  - recvmsg
+  - rename
+  - renameat
+  - rseq
+  - rt_sigaction
+  - rt_sigprocmask
+  - rt_sigreturn
+  - sched_getaffinity
+  - sched_getparam
+  - sched_getscheduler
+  - sched_yield
+  - sendfile
+  - sendmmsg
+  - sendmsg
+  - sendto
+  - set_robust_list
+  - set_tid_address
+  - setsockopt
+  - shutdown
+  - sigaltstack
+  - socket
+  - socketpair
+  - stat
+  - statfs
+  - statx
+  - sysinfo
+  - tgkill
+  - umask
+  - uname
+  - unlink
+  - unlinkat
+  - utimensat
+  - wait4
+  - write
+  - writev

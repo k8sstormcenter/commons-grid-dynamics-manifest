@@ -1,0 +1,532 @@
+# The ADRs as the engine evaluates them. One block per ADR; nothing per-ADR lives in Python.
+#
+#   violated:  predicates over evidence events; every matching event is a finding carrying
+#              `broken` and `fix`. Discounted events (see discounts:) stay as notes (counted=false).
+#   observed:  predicates that must ALL hold for COMPLIANT; each yields one proof line.
+#              Not satisfied -> NOT_OBSERVED, and the proof names the unmet one.
+#   Filters:   field: value | [v1, v2] | {not: [...]} | {gt|ge|lt|le: n} | {regex: ..} | {empty: true|false}
+#   Fields per source: see evidence.py. `show:` lists extra fields to print in `observed`.
+#
+# Status: counted violation -> VIOLATED; an unattributable match -> NOT_OBSERVED;
+#         every observed predicate satisfied -> COMPLIANT; otherwise NOT_OBSERVED.
+
+warmup_s: 210          # network rules are silent before a pod is this old (ADR-0005, measured)
+
+# inter-tier edges the architecture prescribes: traffic on them is never a violation of a
+# tier ADR; a profile that alerts on them has a gap — a VIOLATION of ADR-0005 owned by the platform
+topology:
+  - [frontend, backend]
+  - [backend, database]
+  - [backend, middleware]
+  - [middleware, database]
+  - [backend, backend]
+  - [database, database]
+  - [backend, "ns:zitadel"]
+  - ["*", dns]
+
+# regexes over the client code a tier=frontend pod serves (ADR-0010): backend call sites,
+# authentication markers, browser storage. App-neutral on purpose.
+content_markers:
+  client_state: '\b(localStorage|sessionStorage|indexedDB)\b'
+  backend_calls: '\b(fetch\(|XMLHttpRequest|WebSocket|EventSource|axios)\b'
+  auth: '\b(Authorization|Bearer|login|signin|oauth|openid|jwt|csrf)\b'
+
+# facts that take an event out of the count. Applied to runtime and wire events.
+discounts:
+  - name: kubelet_probe
+    source: [runtime, wire]
+    kubelet_probe: true
+    owner: platform
+    note: kubelet probe from the node's address on a port this pod declares as a probe target; the tier profile does not list it (platform/bobctl)
+  - name: evaluator
+    source: [runtime, wire]
+    peer_kind: evaluator
+    note: the evaluator's own request
+  - name: evaluator_wire
+    source: [wire]
+    remote_kind: evaluator
+    note: the evaluator's own request
+  - name: departed_peer
+    source: [runtime, wire]
+    peer_kind: departed
+    unattributed: true
+    note: the peer is not a live pod and pods of this namespace departed in the window (rollout); cannot be attributed
+  - name: exec_started
+    source: [runtime]
+    rule: [R0001, R0040, R1001]
+    pcomm: containerd-shim
+    note: process started by exec (kubelet exec probe or kubectl exec), not by the image; use tcpSocket/httpGet probes
+  - name: tracer_parent
+    source: [runtime]
+    pcomm: [pem]
+    note: parent is the Pixie tracer; not the application's behaviour
+
+adrs:
+  - id: ADR-0001
+    summary: Strict tier layering
+    title: Tiers are strictly layered; the presentation tier never reaches the data tier
+    enforced_by: [sbob.egress, sbob.ingress, netpol]
+    violated:
+      - source: runtime
+        rule: R0011
+        tier: frontend
+        peer_tier: [database, middleware]
+        broken: the presentation tier reached the data tier directly
+        fix: route the query through the service labelled tier=backend
+      - source: runtime
+        rule: R0012
+        tier: [database, middleware]
+        peer_kind: [pod, external, node, unknown]
+        peer_tier: {not: [backend, middleware, database]}
+        broken: the data tier accepted a connection from outside the application tier
+        fix: route the query through the service labelled tier=backend; NetworkPolicy backend->database only
+      - source: runtime
+        rule: R0012
+        tier: backend
+        peer_kind: pod
+        peer_tier: {not: [frontend, backend, middleware]}
+        broken: the application tier was called by something other than the presentation tier
+        fix: identify the caller; if it is legitimate give it tier=frontend, otherwise remove it
+      - source: wire
+        src_tier: frontend
+        dst_tier: [database, middleware]
+        broken: a frontend->data-tier flow was captured on the wire
+        fix: route the query through the service labelled tier=backend
+        show: [proto, port, count]
+    observed:
+      - source: coverage
+        tiers: [frontend, backend, database, middleware]
+        what: tier pods governed and past warm-up
+      - source: wire
+        src_tier: frontend
+        dst_tier: backend
+        min: 1
+        what: frontend->backend flow seen on the wire
+        group_by: [proto, port]
+
+  - id: ADR-0002
+    summary: Data tier makes no outbound calls
+    title: The data tier never initiates outbound connections
+    enforced_by: [sbob.egress, netpol]
+    violated:
+      - source: runtime
+        rule: R0011
+        tier: [database, middleware]
+        peer_kind: {not: [dns]}
+        edge_prescribed: false
+        broken: the data tier initiated an outbound connection
+        fix: remove the outbound call; if a database genuinely needs egress it belongs in a job labelled tier=backend
+    observed:
+      - source: coverage
+        tiers: [database, middleware]
+        what: data-tier pods governed and past warm-up
+
+  - id: ADR-0003
+    summary: Only the backend holds cluster credentials
+    title: Only the backend tier holds cluster credentials
+    enforced_by: [sbob.opens, kyverno.validate]
+    violated:
+      - source: runtime
+        rule: [R0006, R0010]
+        tier: {not: [backend]}
+        broken: the workload read a cluster credential or sensitive file
+        fix: set automountServiceAccountToken=false; nothing outside tier=backend reads the token
+      - source: spec
+        automount_sa: true
+        tier: {not: [backend]}
+        broken: the ServiceAccount token is mounted into a non-backend tier
+        fix: set spec.template.spec.automountServiceAccountToken = false
+        show: [container, automount_sa]
+    observed:
+      - source: spec
+        tier: {not: [backend]}
+        min: 1
+        what: non-backend containers' automountServiceAccountToken read from the pod spec
+      - source: coverage
+        what: pods governed and past warm-up
+
+  - id: ADR-0004
+    summary: Images immutable at runtime
+    title: Images are immutable at runtime; nothing is installed after build
+    enforced_by: [sbob.execs]
+    violated:
+      - source: runtime
+        rule: R1001
+        tier: {not: [unclassified]}
+        broken: a binary that is not part of the container image was executed (drift)
+        fix: nothing is written and executed at runtime; move the installation into the image build
+        show: [process, pcomm]
+      - source: runtime
+        rule: R0001
+        tier: {not: [unclassified]}
+        broken: a process ran that is not part of the image's declared behaviour
+        fix: if it is a package manager or fetch tool, move the work into the image build
+        show: [process, pcomm]
+    observed:
+      - source: coverage
+        what: all pods governed and past warm-up
+
+  - id: ADR-0005
+    summary: Every workload is classified and bound
+    title: Every workload is classified and bound to its tier profile; an unrecognised one is quarantined
+    enforced_by: [kyverno.mutate, clone-tier-sbobs]
+    violated:
+      - source: pod
+        tier: null
+        broken: pod carries no app.kubernetes.io/tier label
+        fix: label the workload with app.kubernetes.io/tier
+      - source: pod
+        assigned_by: port
+        owner: platform
+        broken: an unrecognised image was given a real tier instead of tier=unclassified (admission port fallback)
+        fix: "platform: remove the port-based rules from the admission policy so an unrecognised image lands in quarantine; application: declare app.kubernetes.io/tier"
+        show: [tier, images]
+      - source: pod
+        bound: false
+        broken: pod points at a profile that does not exist in its namespace (unwatched)
+        fix: wait for clone-tier-sbobs or fix the kubescape.io/user-defined-profile label
+        show: [profile]
+      - source: runtime
+        rule: R1017
+        broken: the profile binding points nowhere; the container is unwatched
+        fix: "platform: clone the tier profile into the namespace"
+      - source: runtime
+        tier: unclassified
+        rule: [R0001, R0011, R0012]
+        broken: an unclassified workload acted outside the quarantine baseline
+        fix: label the workload with app.kubernetes.io/tier so it gets a profile that fits it
+      - source: runtime
+        rule: [R0011, R0012]
+        edge_prescribed: true
+        owner: platform
+        broken: the tier profile does not declare an edge the architecture prescribes, so allowed traffic alerts (platform gap)
+        fix: "platform: declare the inter-tier edge (podSelector app.kubernetes.io/tier) in the tier profile egress/ingress (bobctl)"
+        show: [edge, peer_ip, peer_port]
+    observed:
+      - source: pod
+        min: 1
+        what: pods checked at admission (tier label + profile binding)
+        group_by: [tier, bound]
+
+  - id: ADR-0006
+    summary: Run as non-root
+    title: Workloads run as non-root
+    enforced_by: [kyverno.validate, sbob.capabilities]
+    violated:
+      - source: runtime
+        rule: R0004
+        broken: the container used a Linux capability, i.e. it starts as root and drops
+        fix: switch to the rootless/distroless image variant; this is an image choice, not a profile gap
+        show: [capability, process]
+      - source: spec
+        run_as_non_root: {not: [true]}
+        broken: container may run as root
+        fix: set securityContext.runAsNonRoot = true and a numeric runAsUser
+        show: [container, run_as_non_root, run_as_user]
+      - source: spec
+        allow_priv_esc: {not: [false]}
+        broken: privilege escalation is permitted
+        fix: set securityContext.allowPrivilegeEscalation = false
+        show: [container]
+      - source: spec
+        read_only_root: {not: [true]}
+        broken: root filesystem is writable
+        fix: set securityContext.readOnlyRootFilesystem = true; writable paths as named emptyDir mounts
+        show: [container]
+      - source: scan
+        control: [C-0046, C-0038, C-0041]
+        broken: insecure capabilities or host namespaces requested
+        fix: drop the capability / remove hostPID, hostIPC, hostNetwork
+        show: [control, path]
+    observed:
+      - source: spec
+        min: 1
+        what: containers' securityContext read from the pod spec
+      - source: scan_present
+        present: true
+        what: kubescape scan supplied (insecure capabilities / host namespaces)
+
+  - id: ADR-0007
+    summary: Detection cannot be switched off by a profile
+    title: A profile may not wildcard above a path another rule protects
+    enforced_by: [sbob.authoring]
+    violated:
+      - source: profile
+        wildcards: {gt: 0}
+        broken: profile wildcards above a protected path
+        fix: regenerate the profile (bobctl) listing the named files the application actually reads
+        show: [wildcard_paths]
+      - source: profile
+        tier: backend
+        token_concrete: false
+        broken: the backend's ServiceAccount token allowance is not concrete, so R0006 cannot honour it
+        fix: list /var/run/secrets/kubernetes.io/serviceaccount/token literally
+        show: [token_paths]
+    observed:
+      - source: profile
+        min: 1
+        what: ContainerProfiles read back from the cluster (GET each)
+        group_by: [name]
+
+  - id: ADR-0010
+    summary: Requests authenticated by the platform IdP
+    title: Every backend request is authenticated by the platform identity provider
+    enforced_by: [app-code, idp-client]
+    violated:
+      - source: probe
+        tier: [backend, middleware]
+        auth: none
+        path: {not: ["/metrics"]}
+        status: {lt: 400}
+        broken: backend answers without a bearer token
+        fix: validate bearer tokens on every route against the platform IdP's JWKS (from its OIDC discovery document) — issuer, audience, expiry, signature; 401 otherwise
+        show: [url, status, via]
+      - source: probe
+        auth: garbage
+        status: {lt: 400}
+        broken: backend accepts an invalid token
+        fix: verify signature/issuer/audience/expiry against the IdP JWKS
+        show: [url, status]
+      - source: probe
+        auth: valid
+        status: {not: [200, 201, 202, 204, 301, 302, 303, 307, 308, 404, 405]}
+        broken: backend rejects the platform IdP's token
+        fix: accept the platform IdP's issuer and audience; fetch its JWKS from the OIDC discovery document
+        show: [url, status]
+      - source: content
+        tier: frontend
+        backend_calls: {gt: 0}
+        auth_markers: 0
+        broken: the shell calls a backend but carries no authentication
+        fix: authorization-code + PKCE against the platform IdP; send Authorization Bearer on every API call
+    observed:
+      - source: probe
+        tier: [backend, middleware]
+        auth: none
+        route: true
+        min: 1
+        what: backend routes probed without a token
+        group_by: [workload, status]
+
+  - id: ADR-0011
+    summary: No plaintext on the wire
+    title: No plaintext on the wire
+    enforced_by: [platform-ingress, cert-manager, app-config]
+    violated:
+      - source: wire
+        role: server
+        proto: http
+        encrypted: 0
+        remote_kind: ingress
+        health_path: false
+        broken: the platform ingress reaches the frontend over plaintext (TLS stops at the ingress instead of continuing to the pod)
+        fix: serve TLS on the frontend from a platform-issued certificate; point the ingress/gateway at the TLS port
+        show: [dst_pod, port, path, count]
+      - source: wire
+        role: server
+        proto: http
+        encrypted: 0
+        remote_kind: [driver, external, unknown]
+        health_path: false
+        broken: reached over plaintext bypassing the platform ingress (NodePort, direct Service or pod access)
+        fix: expose the frontend only through the platform ingress/gateway with TLS; ClusterIP Services
+        show: [dst_pod, port, path, remote_kind, count]
+      - source: wire
+        proto: [http, pgsql]
+        encrypted: 0
+        remote_kind: pod
+        health_path: false
+        broken: plaintext between tiers
+        fix: TLS from platform-issued certificates on every inter-tier hop; clients verify; postgres ssl=on hostssl-only
+        show: [proto, src_pod, dst_pod, port, method, path, count]
+      - source: wire
+        egress_external: true
+        encrypted: 0
+        proto: [http, pgsql]
+        broken: plaintext egress to outside the cluster
+        fix: use https/TLS for every external dependency
+        show: [src_pod, remote_ip, port, path, count]
+      - source: svc
+        exposed: true
+        plaintext_ports: {empty: false}
+        broken: plaintext port exposed outside the cluster
+        fix: ClusterIP + Ingress with tls
+        show: [type, plaintext_ports]
+      - source: ingress
+        scope: object
+        fronts_frontend: true
+        tls: false
+        broken: the ingress/gateway object fronting the frontend has no TLS
+        fix: add TLS (spec.tls / websecure entrypoint / HTTPS listener) with a platform-issued certificate
+        show: [kind, name, hosts]
+    observed:
+      - source: ingress
+        scope: namespace
+        fronts_frontend: true
+        min: 1
+        what: the frontend is fronted by a platform ingress/gateway object
+        group_by: [hosts, tls]
+      - source: wire
+        role: server
+        remote_kind: ingress
+        min: 1
+        what: traffic reached the frontend through the ingress controller
+        group_by: [dst_pod, port, encrypted]
+      - source: wire
+        proto: [http, pgsql, conn]
+        remote_kind: {not: [evaluator]}
+        min: 1
+        what: application flows captured on the wire (Pixie)
+        group_by: [proto, src_tier, dst_tier, encrypted]
+
+  - id: ADR-0012
+    summary: Metrics on a dedicated port
+    title: Metrics are served on a dedicated port, scraped only by the platform
+    enforced_by: [kyverno.validate, netpol]
+    violated:
+      - source: spec
+        tier: [backend, middleware, database]
+        has_metrics_port: false
+        broken: no dedicated metrics port
+        fix: expose metrics on a second containerPort named metrics; add a ServiceMonitor/PodMonitor
+        show: [container, port_names]
+      - source: probe
+        path: /metrics
+        auth: none
+        status: 200
+        broken: /metrics served on the application port
+        fix: serve metrics on a port named metrics; 404 /metrics on the application port
+        show: [url, bytes]
+      - source: wire
+        proto: http
+        path: /metrics
+        status: 200
+        remote_kind: {not: [evaluator, node]}
+        remote_ns: {not: [monitoring]}
+        broken: metrics scraped by something other than the platform
+        fix: "NetworkPolicy: metrics port from namespace monitoring only"
+        show: [src_pod, remote_ip, count]
+    observed:
+      - source: spec
+        tier: [backend, middleware, database]
+        min: 1
+        what: containerPort names read from the pod spec
+      - source: probe
+        path: /metrics
+        min: 1
+        what: /metrics probed on the application port
+        group_by: [workload, status]
+
+  - id: ADR-0013
+    summary: Resources, probes and security context declared
+    title: "Every workload declares its envelope: resources, probes, security context"
+    enforced_by: [kyverno.validate]
+    violated:
+      - source: spec
+        has_requests: false
+        broken: no cpu/memory requests
+        fix: set resources.requests.cpu and .memory (choose values)
+        show: [container]
+      - source: spec
+        has_limits: false
+        broken: no cpu/memory limits
+        fix: set resources.limits.cpu and .memory (choose values)
+        show: [container]
+      - source: spec
+        has_liveness: false
+        broken: no liveness probe
+        fix: add livenessProbe (httpGet /healthz or tcpSocket)
+        show: [container]
+      - source: spec
+        has_readiness: false
+        broken: no readiness probe
+        fix: add readinessProbe (httpGet /readyz or tcpSocket)
+        show: [container]
+      - source: spec
+        seccomp: {not: [RuntimeDefault, Localhost]}
+        broken: no seccomp profile
+        fix: set securityContext.seccompProfile.type = RuntimeDefault
+        show: [container, seccomp]
+      - source: spec
+        caps_drop_all: false
+        broken: capabilities not dropped
+        fix: set securityContext.capabilities.drop = [ALL]
+        show: [container]
+      - source: spec
+        exec_probe: true
+        broken: exec probe enters the container through runc (CAP_SYS_ADMIN, /proc reads)
+        fix: use a tcpSocket or httpGet probe
+        show: [container]
+    observed:
+      - source: spec
+        min: 1
+        what: containers' resources, probes and securityContext read from the pod spec
+
+  - id: ADR-0014
+    summary: Images pinned by digest
+    title: Images are pinned by digest, signed; no latest
+    enforced_by: [kyverno.validate, cosign]
+    violated:
+      - source: spec
+        pinned: false
+        broken: image is not pinned by digest
+        fix: "image: <repo>:<tag>@sha256:<digest>; imagePullPolicy: IfNotPresent; sign with cosign"
+        show: [container, image, tag, pull_policy, running_digest]
+      - source: spec
+        pinned: true
+        pull_policy: Always
+        broken: pull policy Always on a pinned image
+        fix: "imagePullPolicy: IfNotPresent"
+        show: [container, image]
+      - source: scan
+        control: [C-0237]
+        broken: image not signed
+        fix: sign with cosign in the publishing workflow; verify at admission
+        show: [control]
+    observed:
+      - source: spec
+        min: 1
+        what: container images checked for @sha256 pins
+        group_by: [pinned]
+      - source: scan_present
+        present: true
+        what: kubescape scan supplied (image signature)
+
+  - id: ADR-0015
+    summary: Ingress belongs to the platform
+    title: Ingress is the platform's; a workload opens nothing itself
+    enforced_by: [kyverno.validate, netpol]
+    violated:
+      - source: svc
+        exposed: true
+        broken: workload opens its own ingress
+        fix: "type: ClusterIP; Ingress via the platform ingress class"
+        show: [type, node_ports]
+      - source: spec
+        host_network: true
+        broken: hostNetwork
+        fix: remove hostNetwork
+        show: [container]
+      - source: spec
+        host_ports: {empty: false}
+        broken: hostPort
+        fix: remove hostPort; use a Service
+        show: [container, host_ports]
+      - source: ingress
+        scope: namespace
+        fronts_frontend: false
+        broken: no platform ingress/gateway object fronts the frontend
+        fix: expose the frontend through the platform ingress class (Ingress / IngressRoute / HTTPRoute) with TLS; never a NodePort
+        show: [objects, frontend_services]
+      - source: netpol
+        scope: namespace
+        default_deny: false
+        broken: no default-deny NetworkPolicy in the namespace
+        fix: default-deny ingress+egress; allow ingress-controller->frontend, frontend->backend, backend->database, backend->IdP, monitoring->metrics, all->DNS
+        show: [policies, default_deny_ingress, default_deny_egress]
+    observed:
+      - source: netpol
+        scope: namespace
+        min: 1
+        what: Services, pod templates and NetworkPolicies of the namespace examined
+        group_by: [policies, default_deny]
