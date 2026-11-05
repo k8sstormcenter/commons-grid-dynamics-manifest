@@ -151,6 +151,10 @@ class Engine:
                 if not matches(e, pred):
                     continue
                 counted = pred.get("counted", True) and not e.get("discount")
+                exc = (e.get("exceptions") or {}).get(adr["id"]) if isinstance(e.get("exceptions"), dict) else None
+                if exc and counted:
+                    counted = False
+                    e = {**e, "discount": "declared_exception", "note": f"declared exception on the pod (adr.platform/exceptions): {exc}", "owner": "application"}
                 f = {"adr": adr["id"], "source": src,
                      "evidence_class": "observed" if src in ("runtime", "wire", "probe", "content") else "declared",
                      "workload": subject(e, src), "container": e.get("container"), "tier": e.get("tier"),

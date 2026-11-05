@@ -131,6 +131,27 @@ def explain(adr):
     return {"adr": adr, "text": "\n## ".join(want), "checks": spec}
 
 
+TRAFFIC_ASK = {
+    "why": "runtime ADRs are judged on traffic; without it they stay NOT_OBSERVED and the proof names the silent edge",
+    "iteration_0": "turn the functional/integration test-suite into load/k6.js (template harness/load/k6-example.js): every "
+                   "request carries User-Agent adr-driver/k6 and X-Test-Case: <use case>; every use case appears at least once; "
+                   "everything goes through the platform ingress host (BASE_URL), never a pod IP or NodePort",
+    "iteration_1_and_later": "ship deploy-loadgen.yaml: a Deployment (grafana/k6, the script in a ConfigMap) in namespace "
+                             "<app>-load that runs the same suite continuously against the ingress host",
+    "runtime_tests": "keep adding functional use cases to the suite, one X-Test-Case per use case; the proof reports per "
+                     "prescribed edge which use cases exercised it",
+    "harness": "harness/load.sh <ns> [seconds] picks deploy-loadgen.yaml, then load/k6.js, then the harness's own browser stand-in",
+}
+
+
+def traffic_view(r):
+    src = r["source"]
+    silent = [a["id"] for a in r["adrs"] if a["status"] == "NOT_OBSERVED" and any(p["source"] in ("wire", "coverage") for p in
+              next((x for x in SPEC["adrs"] if x["id"] == a["id"]), {}).get("observed", []))]
+    return {"wire_rows": src.get("wire_rows", 0), "test_cases_seen": src.get("test_cases", []),
+            "not_observed_for_lack_of_traffic": silent, "ask": TRAFFIC_ASK}
+
+
 def status_view(r):
     return [{"adr": a["id"], "summary": a["summary"], "status": a["status"], "violations": a["violations"], "proof": a["proof"]} for a in r["adrs"]]
 
@@ -144,6 +165,7 @@ def _call(name, args):
     r = engine.evaluate(ns, since, now, scan_for(ns))
     if name in ("adr_compliance", "adr_recheck"):
         return {"namespace": ns, "since_epoch": since, "summary": r["summary"], "adrs": status_view(r),
+                "traffic": traffic_view(r),
                 "broken_before_anything_else": r["broken_before_anything_else"], "source": r["source"]}, r
     if name == "adr_violations":
         return {"namespace": ns, "violations": compact(r, args.get("adr"), args.get("include_discounted", False)),

@@ -50,12 +50,15 @@ ADR-0004:
   status: accepted
   applies_to: every tier
   decision: >-
-    No package manager and no general-purpose fetch tool executes inside a running container, and
-    nothing that was not part of the container image is executed. Every dependency is resolved at
-    build time and baked into the image.
+    The container image is mounted read-only (readOnlyRootFilesystem: true) and no writable volume
+    overlays an image path; writable state lives in named emptyDir mounts. No package manager and no
+    general-purpose fetch tool executes inside a running container, and nothing that was not part of
+    the container image is executed. Every dependency is resolved at build time and baked into the image.
   why: >-
     Installing at runtime makes the running image unknowable and gives an attacker the tooling
-    they would otherwise have to bring. The decisive signal is drift: a binary executed that the
+    they would otherwise have to bring. The static half is how the image is mounted: read-only, with
+    no writable volume on top of its directories, so there is nowhere to install to. The runtime half
+    is what ran anyway. The decisive runtime signal is drift: a binary executed that the
     image does not contain. A process the tier profile does not list (a package manager, a fetch
     tool) is the second signal; it is the noisiest of the set (lowest severity), so the finding
     names the binary and the engine discounts processes started by exec probes and by the tracer.
@@ -83,8 +86,8 @@ ADR-0006:
   status: accepted
   applies_to: every tier
   decision: >-
-    Containers set runAsNonRoot: true, a numeric runAsUser, allowPrivilegeEscalation: false and a
-    read-only root filesystem. Where a rootless image variant exists, it is used.
+    Containers set runAsNonRoot: true, a numeric runAsUser and allowPrivilegeEscalation: false.
+    Where a rootless image variant exists, it is used. (The read-only root filesystem is ADR-0004's.)
   why: >-
     An image whose entrypoint starts as root and drops privileges uses capabilities on the way down;
     the runtime sensor sees that as capability use against a profile that lists none. The manifest
@@ -198,3 +201,55 @@ ADR-0015:
     The network policy and the tier profile describe the same edges from two sides: the policy
     blocks, the profile detects. Where they disagree, the narrower one is right and the other is a
     finding. A workload that opens its own ingress bypasses the TLS termination and the policy.
+
+ADR-0016:
+  status: proposed
+  applies_to: every workload; every Secret in an application namespace
+  decision: >-
+    A credential belongs to exactly one workload and to the one hop that workload initiates; it is
+    never shared between workloads or tiers. Credentials are never written into manifests,
+    ConfigMaps or environment variables: a Secret is mounted as a read-only file, or the workload
+    uses platform-issued short-lived identity (the IdP's tokens, cert-manager certificates). Every
+    long-lived credential is rotated; one older than 90 days is a finding.
+  why: >-
+    A credential in an environment variable is readable by every process in the container, its
+    children, core dumps and /proc, and it ends up in logs. A shared credential cannot be attributed
+    when it leaks and cannot be revoked without collateral. A credential that never rotates is a
+    credential that is still valid after the leak nobody noticed. The pod spec shows how credentials
+    are delivered; the Secret objects show who shares what and for how long; the static scan finds
+    values that were written down.
+  notes: >-
+    A workload that genuinely needs a documented exception declares it on the pod with
+    adr.platform/exceptions: "ADR-0016=<reason>"; the finding stays in the report as a note, not counted.
+
+ADR-0017:
+  status: proposed
+  applies_to: every workload ServiceAccount, Role, RoleBinding and ClusterRoleBinding
+  decision: >-
+    Every workload runs under its own ServiceAccount, and that ServiceAccount is bound only to the
+    verbs and resources the code actually calls. No administrative role, no wildcard verbs or
+    resources, no reading of Secrets through the API, no exec/attach/portforward, no escalate/bind/
+    impersonate, and no cluster-scoped binding for a namespaced workload. Nothing is bound to the
+    default ServiceAccount. A workload that does not call the API has no bindings at all.
+  why: >-
+    RBAC is what a stolen token buys. The bindings are resolved per running pod, from its
+    ServiceAccount through every RoleBinding and ClusterRoleBinding to the rules, so the finding
+    names the binding to fix. The runtime sensor corroborates: a workload calling the API outside
+    its profile is either an undeclared dependency or an intrusion.
+
+ADR-0018:
+  status: proposed
+  applies_to: every workload; the namespace's NetworkPolicy
+  decision: >-
+    No workload is privileged, mounts a host path (least of all the container runtime socket),
+    shares the host PID or IPC namespace, adds a dangerous capability, or loads a kernel module. The
+    cloud metadata API (169.254.169.254) is unreachable from application pods by NetworkPolicy. A pod
+    that genuinely requires one of these declares it on the pod with
+    adr.platform/exceptions: "ADR-0018=<reason>"; the finding then stays as a note, not counted.
+  why: >-
+    Each of these is a step from a container to the node or the cloud account: a privileged
+    container or a host path is the node; a kernel module is the kernel; the metadata API is the
+    cloud credentials of the node. The pod spec declares the first four; the runtime sensor sees a
+    module load; the NetworkPolicy and the wire show whether the metadata API is reachable and
+    whether it was reached.
+

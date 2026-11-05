@@ -15,7 +15,7 @@ adrs.yaml ──engine.py──► per-ADR status + findings + proof
 adr_kpi.py   the CLI the harness runs  → artefacts/kpi-<ns>-iterN.json
 adr_mcp.py   the same evaluator as an MCP server; every call also writes forensic_db.adr_findings
 kpi_to_ch.py load an existing kpi json into forensic_db.adr_findings (v1 and v2 files)
-drive.py     browser-shaped traffic over the prescribed edges before judging
+drive.py     the harness's browser stand-in; ../harness/load.sh prefers the app's own k6 suite / generator (see ../harness/load/README.md)
 scan.sh      kubescape CLI scan of a namespace → /tmp/AllControls-<ns>.json (scan-failures.py reads it)
 ```
 
@@ -60,15 +60,21 @@ note the finding carries.
 | source | one event per | fields |
 |---|---|---|
 | `pod` | running pod | pod, workload, tier, profile, bound, ip, node, age_s, warm, declared_known, declared_tier, assigned_by (declared/image/port/unclassified/none), image_known, probe_ports |
-| `spec` | container | image, pinned, tag, mutable_tag, pull_policy, running_digest, port_names, has_metrics_port, host_ports, host_network, run_as_non_root, run_as_user, allow_priv_esc, read_only_root, caps_drop_all, seccomp, automount_sa, has_liveness, has_readiness, exec_probe, has_requests, has_limits |
+| `spec` | container | image, pinned, tag, mutable_tag, pull_policy, running_digest, port_names, has_metrics_port, host_ports, host_network, run_as_non_root, run_as_user, allow_priv_esc, read_only_root, caps_drop_all, seccomp, automount_sa, has_liveness, has_readiness, exec_probe, writable_mounts, image_overlays, has_requests, has_limits |
 | `svc` / `ingress` | object | type, ports, node_ports, plaintext_ports, exposed / tls, hosts |
 | `netpol` | policy, plus one `scope: namespace` row | selects_all, default_deny_ingress, default_deny_egress, default_deny, policies |
+| `secret` | Secret of the namespace (not SA tokens / helm) | name, type, age_days, keys, referenced_by, ref_count, shared, tiers, cross_tier, via_env, via_volume, referenced |
+| `rbac` | ServiceAccount a running pod uses | service_account, workloads, is_default, bindings, has_bindings, cluster_scoped, admin, wildcard_verbs, wildcard_resources, secrets_read, exec, escalate, delete, rules, overscoped |
 | `profile` | ContainerProfile (GET each) | name, tier, opens, execs, wildcards, wildcard_paths, token_paths, token_concrete, has_egress, has_ingress, signed |
 | `runtime` | distinct detection on a live pod | rule, severity, pod, workload, container, tier, node, profile, image, image_digest, process, pcomm, cmdline, message, count, pod_age_s, direction, peer_ip, peer_port, peer_kind (pod/node/evaluator/external/departed/dns/unknown), peer_pod, peer_tier (tier or `ns:<namespace>`), edge, edge_prescribed, kubelet_probe, domain, path, exec, capability |
-| `wire` | aggregated flow | proto (http/pgsql/conn), role, src_pod, src_tier, dst_pod, dst_tier, remote_ip, remote_kind, remote_ns, port, encrypted, method, path, status, count, kubelet_probe, health_path |
+| `wire` | aggregated flow | proto (http/pgsql/conn), role, src_pod, src_tier, dst_pod, dst_tier, remote_ip, remote_kind, remote_ns, port, encrypted, method, path, status, count, kubelet_probe, health_path, via_ingress, egress_external, test_case |
 | `scan` | failed control × fix path | control, name, path, severity, resources, value, action, agent_can_apply |
 | `probe` | request the evaluator made | workload, tier, url, path, auth (none/garbage/valid), status, via, route, reachable |
 | `content` | page-serving pod | serves_page, bytes, js_bytes, js_kb, scripts, functions, api_paths, n_api_paths, backend_calls, auth_markers, client_state, marker_* |
+
+A pod annotation `adr.platform/exceptions: "ADR-0018=<reason>; ADR-0016=<reason>"` turns that ADR's
+findings on the pod into declared exceptions: kept in the report as notes (`counted=false`,
+`note: declared exception …`), never making the ADR VIOLATED.
 
 Runtime events are filtered to pods that exist now and to detections that postdate the pod
 (the fix-and-verify loop must not see the previous revision's evidence); identical detections

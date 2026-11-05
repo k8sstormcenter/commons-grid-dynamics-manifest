@@ -6,7 +6,7 @@
 
 ## Decision
 
-Containers set runAsNonRoot: true, a numeric runAsUser, allowPrivilegeEscalation: false and a read-only root filesystem. Where a rootless image variant exists, it is used.
+Containers set runAsNonRoot: true, a numeric runAsUser and allowPrivilegeEscalation: false. Where a rootless image variant exists, it is used. (The read-only root filesystem is ADR-0004's.)
 
 ## Why
 
@@ -26,16 +26,14 @@ Each matching event is a finding with the observed event, the decision it broke 
 * **the container used a Linux capability, i.e. it starts as root and drops** — the runtime sensor saw a Linux capability the profile does not list was used.
 * **container may run as root** — a container in the pod spec — runAsNonRoot not true.
 * **privilege escalation is permitted** — a container in the pod spec — allowPrivilegeEscalation not false.
-* **root filesystem is writable** — a container in the pod spec — readOnlyRootFilesystem not true.
-* **insecure capabilities or host namespaces requested** — the static scan flagged insecure capabilities or a shared host PID/IPC namespace or host network access.
+* **insecure capabilities requested** — the static scan flagged insecure capabilities.
 
 ## How to fix
 
 * the container used a Linux capability, i.e. it starts as root and drops: switch to the rootless/distroless image variant; this is an image choice, not a profile gap
 * container may run as root: set securityContext.runAsNonRoot = true and a numeric runAsUser
 * privilege escalation is permitted: set securityContext.allowPrivilegeEscalation = false
-* root filesystem is writable: set securityContext.readOnlyRootFilesystem = true; writable paths as named emptyDir mounts
-* insecure capabilities or host namespaces requested: drop the capability / remove hostPID, hostIPC, hostNetwork
+* insecure capabilities requested: drop the capability (capabilities.drop [ALL])
 
 ## Reproduce without the tooling
 
@@ -57,7 +55,6 @@ ls -l /tmp/AllControls-<ns>.json   # the scan file the evaluator was given
 | runtime | R0004 | the container used a Linux capability, i.e. it starts as root and drops |
 | spec | runAsNonRoot not true | container may run as root |
 | spec | allowPrivilegeEscalation not false | privilege escalation is permitted |
-| spec | readOnlyRootFilesystem not true | root filesystem is writable |
-| scan | C-0046 / C-0038 / C-0041 | insecure capabilities or host namespaces requested |
+| scan | C-0046 | insecure capabilities requested |
 
 *Generated from `compliance/adrs.yaml` and `compliance/adr_text.yaml` by `compliance/adr_docs.py`. Edit those, not this file.*

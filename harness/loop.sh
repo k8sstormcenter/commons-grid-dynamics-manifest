@@ -2,7 +2,7 @@
 # One iteration of the fix-and-verify loop:
 #   ./harness/loop.sh <N> [namespace] [manifest]       default: commons-grid, deploy-iter<N>.yaml
 # records the time, applies the manifest, scans, WAITS until every pod is past the sensor's
-# warm-up, DRIVES the application, evaluates (compliance/engine.py over compliance/adrs.yaml)
+# warm-up, puts traffic on the application (harness/load.sh), evaluates (compliance/engine.py over compliance/adrs.yaml)
 # into artefacts/kpi-<ns>-iter<N>.json, writes the rows to forensic_db.adr_findings and asks
 # the MCP what the coding agent would be told.
 # Needs ADR_CH (ClickHouse HTTP DSN), kubectl, kubescape, python3 + PyYAML.
@@ -30,7 +30,7 @@ while :; do
   echo "warm-up: youngest pod ${YOUNGEST:-?}s / ${WARMUP}s"; sleep 15
 done
 
-python3 compliance/drive.py "$NS" "${DRIVE_ROUNDS:-3}"                      # browser-shaped traffic over the prescribed edges
+./harness/load.sh "$NS" "${LOAD_SECONDS:-120}"                               # realistic traffic: the app's generator, its k6 suite, or the browser stand-in
 sleep "${SETTLE:-30}"                                                        # let the alerts and the Pixie rows land
 ADR_SCAN_DIR="$SCAN_DIR" compliance/scan.sh "$NS" AllControls
 python3 compliance/adr_kpi.py "$NS" --since "$SINCE" --scan "$SCAN_DIR/AllControls-$NS.json" --out "artefacts/kpi-$NS-iter$N.json"

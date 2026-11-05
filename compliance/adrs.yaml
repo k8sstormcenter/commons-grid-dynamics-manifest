@@ -102,7 +102,7 @@ adrs:
         dst_tier: backend
         min: 1
         what: frontend->backend flow seen on the wire
-        group_by: [proto, port]
+        group_by: [proto, port, test_case]
 
   - id: ADR-0002
     summary: Data tier makes no outbound calls
@@ -148,7 +148,7 @@ adrs:
   - id: ADR-0004
     summary: Images immutable at runtime
     title: Images are immutable at runtime; nothing is installed after build
-    enforced_by: [sbob.execs]
+    enforced_by: [kyverno.validate, sbob.execs]
     violated:
       - source: runtime
         rule: R1001
@@ -162,9 +162,28 @@ adrs:
         broken: a process ran that is not part of the image's declared behaviour
         fix: if it is a package manager or fetch tool, move the work into the image build
         show: [process, pcomm]
+      - source: runtime
+        rule: R1004
+        tier: {not: [unclassified]}
+        broken: a process was executed from a mounted volume, not from the image
+        fix: nothing executable lives on a volume; ship it in the image
+        show: [process, pcomm]
+      - source: spec
+        read_only_root: {not: [true]}
+        broken: the image is mounted writable (root filesystem not read-only)
+        fix: set securityContext.readOnlyRootFilesystem = true; writable paths as named emptyDir mounts
+        show: [container, read_only_root]
+      - source: spec
+        image_overlays: {empty: false}
+        broken: a writable volume overlays an image path
+        fix: mount volumes read-only, or outside the image's directories (/usr, /bin, /lib, /opt, /app, /etc)
+        show: [container, image_overlays]
     observed:
       - source: coverage
         what: all pods governed and past warm-up
+      - source: spec
+        min: 1
+        what: containers' root filesystem mode and volume mounts read from the pod spec
 
   - id: ADR-0005
     summary: Every workload is classified and bound
@@ -228,15 +247,10 @@ adrs:
         broken: privilege escalation is permitted
         fix: set securityContext.allowPrivilegeEscalation = false
         show: [container]
-      - source: spec
-        read_only_root: {not: [true]}
-        broken: root filesystem is writable
-        fix: set securityContext.readOnlyRootFilesystem = true; writable paths as named emptyDir mounts
-        show: [container]
       - source: scan
-        control: [C-0046, C-0038, C-0041]
-        broken: insecure capabilities or host namespaces requested
-        fix: drop the capability / remove hostPID, hostIPC, hostNetwork
+        control: [C-0046]
+        broken: insecure capabilities requested
+        fix: drop the capability (capabilities.drop [ALL])
         show: [control, path]
     observed:
       - source: spec
@@ -377,7 +391,7 @@ adrs:
         remote_kind: {not: [evaluator]}
         min: 1
         what: application flows captured on the wire (Pixie)
-        group_by: [proto, src_tier, dst_tier, encrypted]
+        group_by: [proto, src_tier, dst_tier, encrypted, test_case]
 
   - id: ADR-0012
     summary: Metrics on a dedicated port
@@ -530,3 +544,176 @@ adrs:
         min: 1
         what: Services, pod templates and NetworkPolicies of the namespace examined
         group_by: [policies, default_deny]
+
+  - id: ADR-0016
+    summary: No shared or long-lived credentials
+    title: Credentials are per workload, short-lived, and never in environment variables or manifests
+    enforced_by: [kyverno.validate, secret-rotation, workload-identity]
+    violated:
+      - source: spec
+        env_literal_secrets: {empty: false}
+        broken: a credential is written literally into the pod spec
+        fix: never put secrets in manifests or ConfigMaps; reference a Secret mounted as a file, or use workload identity
+        show: [container, env_literal_secrets]
+      - source: spec
+        env_secret_refs: {empty: false}
+        broken: a Secret is injected as an environment variable (visible to every process, child, core dump and /proc)
+        fix: mount the Secret as a read-only file (volume or CSI secrets store), or use short-lived workload identity
+        show: [container, env_secret_refs]
+      - source: secret
+        shared: true
+        broken: one Secret is used by several workloads (shared credential)
+        fix: one credential per workload, so a leak is attributable and revocable without collateral
+        show: [name, referenced_by]
+      - source: secret
+        cross_tier: true
+        broken: a credential crosses tiers
+        fix: each tier holds only the credentials for the hop it initiates
+        show: [name, tiers]
+      - source: secret
+        referenced: true
+        age_days: {gt: 90}
+        broken: a long-lived credential (older than 90 days, never rotated)
+        fix: rotate on a schedule; prefer platform-issued short-lived tokens (IdP, cert-manager)
+        show: [name, age_days, referenced_by]
+      - source: scan
+        control: [C-0012]
+        broken: application credentials found in configuration files
+        fix: move the value to a Secret mounted as a file, or to workload identity
+        show: [control, path]
+    observed:
+      - source: spec
+        min: 1
+        what: containers' env, envFrom and volume mounts read from the pod spec
+      - source: scan_present
+        present: true
+        what: kubescape scan supplied (credentials in configuration)
+
+  - id: ADR-0017
+    summary: Least-privilege RBAC
+    title: A workload's ServiceAccount holds only the permissions its code uses; nothing is bound to default
+    enforced_by: [rbac-review, kyverno.validate]
+    violated:
+      - source: rbac
+        admin: true
+        broken: an administrative role (cluster-admin, admin, edit) is bound to a workload ServiceAccount
+        fix: bind a Role with the verbs and resources the code actually calls
+        show: [service_account, bindings]
+      - source: rbac
+        wildcard_verbs: true
+        broken: wildcard verbs in a role bound to a workload
+        fix: list the verbs explicitly
+        show: [service_account, bindings]
+      - source: rbac
+        wildcard_resources: true
+        broken: wildcard resources or apiGroups in a role bound to a workload
+        fix: list the resources explicitly
+        show: [service_account, bindings]
+      - source: rbac
+        secrets_read: true
+        broken: the workload can read Secrets through the API
+        fix: mount the one Secret it needs; no get/list/watch on secrets
+        show: [service_account, bindings]
+      - source: rbac
+        exec: true
+        broken: the workload can exec/attach/portforward into pods
+        fix: remove pods/exec, pods/attach, pods/portforward
+        show: [service_account, bindings]
+      - source: rbac
+        escalate: true
+        broken: the workload can escalate, bind or impersonate
+        fix: remove escalate/bind/impersonate verbs
+        show: [service_account, bindings]
+      - source: rbac
+        is_default: true
+        has_bindings: true
+        broken: permissions are bound to the default ServiceAccount
+        fix: give the workload its own ServiceAccount; leave default with nothing
+        show: [bindings]
+      - source: rbac
+        cluster_scoped: true
+        broken: a namespaced workload holds a cluster-scoped binding
+        fix: bind a namespaced Role; cluster-wide access is the platform's
+        show: [service_account, bindings]
+      - source: runtime
+        rule: R0007
+        broken: the workload called the Kubernetes API outside its profile
+        fix: if the call is legitimate declare it in the profile and the Role; otherwise remove it
+        show: [process]
+      - source: scan
+        control: [C-0035, C-0015, C-0002, C-0007, C-0063, C-0065, C-0031, C-0186, C-0187, C-0188, C-0191]
+        broken: over-scoped RBAC flagged by the static scan
+        fix: reduce the role to the verbs and resources the workload uses
+        show: [control, path]
+    observed:
+      - source: rbac
+        min: 1
+        what: ServiceAccounts of the running pods resolved through their bindings to rules
+        group_by: [service_account, rules]
+
+  - id: ADR-0018
+    summary: No privilege, no host surface
+    title: Workloads are unprivileged, touch no host path, load no kernel module and cannot reach the cloud metadata API
+    enforced_by: [kyverno.validate, netpol, sbob.capabilities]
+    violated:
+      - source: spec
+        privileged: true
+        broken: privileged container
+        fix: remove securityContext.privileged; grant a single capability if one is truly needed
+        show: [container]
+      - source: spec
+        host_path_mounts: {empty: false}
+        broken: a host path is mounted into the container
+        fix: no hostPath volumes; use emptyDir, PVC or a projected volume
+        show: [container, host_path_mounts]
+      - source: spec
+        runtime_socket: true
+        broken: the container runtime socket is mounted
+        fix: never mount docker/containerd/crio sockets
+        show: [container, host_path_mounts]
+      - source: spec
+        host_pid: true
+        broken: hostPID shared
+        fix: remove hostPID
+        show: [container]
+      - source: spec
+        host_ipc: true
+        broken: hostIPC shared
+        fix: remove hostIPC
+        show: [container]
+      - source: spec
+        caps_add_dangerous: {empty: false}
+        broken: a dangerous capability is added
+        fix: drop ALL; add nothing from SYS_ADMIN, SYS_MODULE, NET_ADMIN, SYS_PTRACE, SYS_RAWIO, BPF, NET_RAW
+        show: [container, caps_add_dangerous]
+      - source: runtime
+        rule: R1002
+        broken: the container tried to load a kernel module
+        fix: no module loading from a workload; this is the node's job
+        show: [process, pcomm]
+      - source: netpol
+        scope: namespace
+        metadata_api_blocked: false
+        broken: egress to the cloud metadata API (169.254.169.254) is not blocked by NetworkPolicy
+        fix: default-deny egress plus explicit allows; never an allow covering 169.254.169.254
+        show: [policies, default_deny_egress]
+      - source: wire
+        remote_kind: metadata
+        broken: the cloud metadata API was reached
+        fix: block 169.254.169.254 by NetworkPolicy; use workload identity instead of instance credentials
+        show: [src_pod, port, path, count]
+      - source: scan
+        control: [C-0057, C-0048, C-0074, C-0038, C-0041]
+        broken: privileged container, host path, runtime socket or host namespace flagged by the static scan
+        fix: remove the privilege / host mount / host namespace
+        show: [control, path]
+    observed:
+      - source: spec
+        min: 1
+        what: containers' securityContext, capabilities and volumes read from the pod spec
+      - source: netpol
+        scope: namespace
+        min: 1
+        what: the namespace's egress policy checked against the metadata API address
+        group_by: [metadata_api_blocked]
+

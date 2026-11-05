@@ -22,7 +22,7 @@ SOURCE_WORDS = {
     "runtime": "the runtime sensor saw", "wire": "a captured flow", "spec": "a container in the pod spec",
     "pod": "a running pod", "svc": "a Service", "ingress": "an Ingress", "netpol": "the namespace's NetworkPolicy set",
     "profile": "a stored ContainerProfile", "policy": "the admission policy", "scan": "the static scan flagged",
-    "ingress": "an ingress/gateway object",
+    "ingress": "an ingress/gateway object", "secret": "a Secret of the namespace", "rbac": "a workload ServiceAccount's bindings",
     "probe": "an evaluator HTTP probe", "content": "the page the frontend serves", "scan_present": "the kubescape scan",
 }
 RULE_WORDS = {
@@ -31,9 +31,16 @@ RULE_WORDS = {
     "R0006": "the ServiceAccount token was read", "R0010": "a sensitive file was read",
     "R0011": "an outbound connection the tier profile does not allow", "R0012": "an inbound connection the tier profile does not allow",
     "R0040": "a process ran with arguments the profile does not list", "R1017": "a profile binding that resolves to nothing",
+    "R1001": "a binary that is not part of the container image was executed", "R1004": "a process was executed from a mounted volume",
+    "R1002": "a kernel module load was attempted", "R0007": "the Kubernetes API was called outside the profile",
 }
 CONTROL_WORDS = {"C-0046": "insecure capabilities", "C-0038": "a shared host PID/IPC namespace", "C-0041": "host network access",
-                 "C-0237": "an unsigned image", "C-0236": "an unpinned image", "C-0034": "a mounted ServiceAccount token"}
+                 "C-0237": "an unsigned image", "C-0236": "an unpinned image", "C-0034": "a mounted ServiceAccount token",
+                 "C-0057": "a privileged container", "C-0048": "a hostPath mount", "C-0074": "a mounted container runtime socket",
+                 "C-0012": "credentials in configuration files", "C-0035": "an administrative role", "C-0015": "listing Secrets",
+                 "C-0002": "exec into containers", "C-0007": "delete capabilities", "C-0063": "portforward privileges",
+                 "C-0065": "impersonation", "C-0031": "deleting events", "C-0186": "access to Secrets", "C-0187": "wildcards in roles",
+                 "C-0188": "pod creation rights", "C-0191": "bind/impersonate/escalate"}
 FIELD_WORDS = {
     "tier": "tier", "peer_tier": "peer tier", "peer_kind": "peer", "src_tier": "source tier", "dst_tier": "destination tier",
     "proto": "protocol", "encrypted": "encrypted", "path": "path", "remote_kind": "remote", "remote_ns": "remote namespace",
@@ -43,7 +50,12 @@ FIELD_WORDS = {
     "n_datasets": "datasets embedded in the page", "client_state": "browser-storage uses", "backend_calls": "backend call sites",
     "auth_markers": "authentication markers", "auth": "Authorization", "status": "HTTP status",
     "via_ingress": "via the ingress controller", "egress_external": "outbound to outside the cluster", "fronts_frontend": "fronting the frontend",
-    "role": "direction", "kind": "kind",
+    "role": "direction", "kind": "kind", "image_overlays": "writable volume over an image path",
+    "env_literal_secrets": "credential-named env vars with literal values", "env_secret_refs": "Secrets injected as env",
+    "host_path_mounts": "hostPath mounts", "caps_add_dangerous": "dangerous capabilities added", "age_days": "age in days",
+    "metadata_api_blocked": "metadata API blocked by NetworkPolicy", "secrets_read": "can read Secrets", "wildcard_verbs": "wildcard verbs",
+    "wildcard_resources": "wildcard resources", "cluster_scoped": "cluster-scoped binding", "is_default": "the default ServiceAccount",
+    "has_bindings": "bindings", "exec": "exec/attach/portforward", "escalate": "escalate/bind/impersonate", "admin": "an administrative role",
 }
 # (field, value) -> phrase; booleans and None rendered as statements, not "= True/False"
 PHRASE = {
@@ -63,6 +75,13 @@ PHRASE = {
     ("fronts_frontend", True): "fronting the frontend", ("egress_external", True): "outbound to outside the cluster",
     ("scope", "namespace"): "namespace-wide", ("scope", "object"): "per object",
     ("host_ports", "nonempty"): "hostPort set", ("plaintext_ports", "nonempty"): "a plaintext port exposed",
+    ("image_overlays", "nonempty"): "a writable volume mounted over an image path",
+    ("env_literal_secrets", "nonempty"): "a credential-named env var with a literal value", ("env_secret_refs", "nonempty"): "a Secret injected as an environment variable",
+    ("host_path_mounts", "nonempty"): "a hostPath mounted", ("caps_add_dangerous", "nonempty"): "a dangerous capability added",
+    ("shared", True): "referenced by more than one workload", ("cross_tier", True): "referenced from more than one tier", ("referenced", True): "referenced by a workload",
+    ("privileged", True): "privileged", ("runtime_socket", True): "the container runtime socket mounted", ("host_pid", True): "hostPID", ("host_ipc", True): "hostIPC",
+    ("metadata_api_blocked", False): "the metadata API not blocked", ("remote_kind", "metadata"): "to the cloud metadata API",
+    ("is_default", True): "the default ServiceAccount", ("has_bindings", True): "with bindings",
 }
 
 
@@ -140,6 +159,8 @@ REPRO = {
     "profile": "kubectl -n <ns> get containerprofiles.spdx.softwarecomposition.kubescape.io <name> -o json | jq '[.spec.opens[].path]'   # GET each; LIST returns an empty spec",
     "scan": "kubescape scan framework AllControls --include-namespaces <ns> --format json --output /tmp/AllControls-<ns>.json",
     "scan_present": "ls -l /tmp/AllControls-<ns>.json   # the scan file the evaluator was given",
+    "secret": "kubectl -n <ns> get secrets -o custom-columns='NAME:.metadata.name,TYPE:.type,AGE:.metadata.creationTimestamp'; kubectl -n <ns> get pods -o json | jq '.items[].spec.containers[] | {{name, env, envFrom, volumeMounts}}'",
+    "rbac": "kubectl -n <ns> get rolebindings -o wide; kubectl get clusterrolebindings -o json | jq '.items[] | select(.subjects[]?.namespace==\"<ns>\") | {{name:.metadata.name, role:.roleRef.name}}'",
     "probe": "curl -sk -o /dev/null -w '%{{http_code}}\\n' http://<backend-pod-ip>:<port><route>   # then with -H 'Authorization: Bearer not.a.token', then with a platform-minted token",
     "content": "curl -s http://<frontend-pod-ip>:<port>/ | grep -o '<script[^>]*src=\"[^\"]*\"'   # then fetch each script and grep for the markers listed above",
 }
@@ -218,7 +239,7 @@ def render_readme():
          "* every pod carries `app.kubernetes.io/tier` and `kubescape.io/user-defined-profile` naming a profile that exists in its namespace (an unbound pod is unwatched)",
          "* the tier profile declares the edges the architecture prescribes by label selector — otherwise allowed traffic alerts and the platform, not the application, owns the finding",
          f"* pods are older than the warm-up ({SPEC.get('warmup_s', 210)} s) before network rules are judged",
-         "* the application was driven over its prescribed edges (`compliance/drive.py`) — an unexercised edge cannot be COMPLIANT",
+         "* the application was put under realistic traffic (`harness/load.sh`: its own k6 suite or generator, else the browser stand-in) — an unexercised edge cannot be COMPLIANT; requests tagged `X-Test-Case` name the use case in the proof",
          "* a kubescape scan is supplied for the static controls, or those ADRs stay NOT_OBSERVED", "",
          "## The decision set", "",
          "| ADR | summary | decision | enforced by |", "|---|---|---|---|"]

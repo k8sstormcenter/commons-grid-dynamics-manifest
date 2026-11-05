@@ -9,6 +9,8 @@ on them without Python. Sources:
   spec      one per container: image pin, ports, securityContext, probes, resources, automount
   svc / ingress / netpol   the namespace's network objects (netpol also has one namespace-level row)
   profile   one per ContainerProfile stored in the namespace (GET each: LIST nulls .spec)
+  secret    one per Secret of the namespace: who references it (env / volume), shared, cross-tier, age
+  rbac      one per ServiceAccount a running pod uses: its bindings resolved to rules (admin, wildcards, secrets, exec, escalate)
   runtime   one per distinct node-agent detection (forensic_db.kubescape_logs) on a live pod,
             with the peer resolved: pod/tier/kind, prescribed edge, pod age at the event
   wire      Pixie http_events / pgsql_events / conn_stats, aggregated per flow, peers resolved
@@ -30,6 +32,9 @@ MUTABLE_TAGS = {"latest", "main", "master", "dev", "stable", "edge", "nightly"}
 PLAINTEXT_PORTS = {80, 8000, 8080, 3000, 5432, 6379, 3306, 27017}
 HEALTH_PATHS = {"/health", "/healthz", "/readyz", "/livez", "/api/health"}
 HTTP_PORTS = (80, 8080, 3000, 8000, 5000, 9000, 443, 8443)
+SECRET_ENV = re.compile(r"(PASS|PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIAL|CLIENT_SECRET|DSN|CONNECTION_?STRING)", re.I)
+DANGEROUS_CAPS = {"SYS_ADMIN", "SYS_MODULE", "NET_ADMIN", "SYS_PTRACE", "SYS_RAWIO", "BPF", "DAC_READ_SEARCH", "SYS_BOOT", "NET_RAW", "ALL"}
+METADATA_IP = "169.254.169.254"
 INGRESS_NAMESPACES = {"traefik", "ingress-nginx", "istio-system", "istio-ingress", "envoy-gateway-system", "nginx-gateway", "kong"}
 # content markers (regexes over the client code a frontend serves) come from adrs.yaml
 # (content_markers) so the ADR declares them; these are the fallback.
@@ -90,13 +95,15 @@ class Evidence:
     def __init__(self, ns, since, until, scan=None, live=True, warmup_s=210, markers=None):
         self.ns, self.since, self.until, self.scan_path, self.warmup_s = ns, since, until, scan, warmup_s
         self.markers = markers or CODE_MARKERS
-        self.events = {k: [] for k in ("pod", "spec", "svc", "ingress", "netpol", "profile",
+        self.events = {k: [] for k in ("pod", "spec", "svc", "ingress", "netpol", "profile", "secret", "rbac",
                                        "runtime", "wire", "scan", "scan_present", "probe", "content")}
         self.notes = []
         self._cluster()
         self._pods()
         self._network_objects()
         self._profiles()
+        self._secrets()
+        self._rbac()
         self._runtime()
         self._wire()
         self._scan()
@@ -134,6 +141,8 @@ class Evidence:
         """kind, pod, tier, namespace for an address the application talked to."""
         if not ip:
             return "", None, None, None
+        if ip == METADATA_IP:
+            return "metadata", None, None, None
         if ip in self.evaluator_ips:
             return "evaluator", None, None, None
         if ip in self.node_ips:
@@ -190,7 +199,12 @@ class Evidence:
                     if hg or tcp:
                         port = (hg or tcp).get("port")
                         probe_ports.add(str(named.get(port, port)))
+            exc = {}
+            for part in (md.get("annotations", {}) or {}).get("adr.platform/exceptions", "").split(";"):
+                if "=" in part:
+                    k, v = part.split("=", 1); exc[k.strip()] = v.strip()
             ev = {"pod": name, "workload": owner or name, "tier": tier, "profile": prof, "bound": prof in profiles,
+                  "service_account": sp.get("serviceAccountName", "default"), "exceptions": exc,
                   "ip": st.get("podIP"), "node": sp.get("nodeName"), "start": start,
                   "age_s": int(self.until - start) if start else None, "warm": bool(start) and (self.until - start) >= self.warmup_s,
                   "declared_known": decl is not None, "declared_tier": declared_tier, "assigned_by": assigned_by,
@@ -200,9 +214,11 @@ class Evidence:
             self.pod_ip[ev["ip"]] = ev
             self.pod_meta[name] = ev
             running = {cs["name"]: cs for cs in st.get("containerStatuses", [])}
+            vols = {v["name"]: v for v in sp.get("volumes", []) or []}
             for c in sp["containers"]:
                 sc = c.get("securityContext") or {}
                 psc = sp.get("securityContext") or {}
+                caps_add = (sc.get("capabilities") or {}).get("add") or []
                 img = c["image"]
                 last = img.split("/")[-1]
                 tag = last.split(":", 1)[1].split("@")[0] if ":" in last.split("@")[0] else None
@@ -227,6 +243,22 @@ class Evidence:
                     "automount_sa": sp.get("automountServiceAccountToken", True),
                     "has_liveness": bool(c.get("livenessProbe")), "has_readiness": bool(c.get("readinessProbe")),
                     "exec_probe": any((c.get(k) or {}).get("exec") for k in ("livenessProbe", "readinessProbe", "startupProbe")),
+                    "privileged": bool(sc.get("privileged")), "host_pid": bool(sp.get("hostPID")), "host_ipc": bool(sp.get("hostIPC")),
+                    "caps_add": caps_add, "caps_add_dangerous": sorted(set(caps_add) & DANGEROUS_CAPS),
+                    "host_path_mounts": [f"{m['mountPath']}<-{vols[m['name']]['hostPath']['path']}" for m in c.get("volumeMounts", []) or []
+                                         if m.get("name") in vols and vols[m["name"]].get("hostPath")],
+                    "runtime_socket": any(re.search(r"(docker|containerd|crio)\.sock", vols[m["name"]]["hostPath"]["path"]) for m in c.get("volumeMounts", []) or []
+                                          if m.get("name") in vols and vols[m["name"]].get("hostPath")),
+                    "env_literal_secrets": [e["name"] for e in c.get("env", []) or [] if SECRET_ENV.search(e.get("name", "")) and "value" in e and e["value"]],
+                    "env_secret_refs": sorted({(e.get("valueFrom") or {}).get("secretKeyRef", {}).get("name") for e in c.get("env", []) or []
+                                               if (e.get("valueFrom") or {}).get("secretKeyRef")} |
+                                              {(ef.get("secretRef") or {}).get("name") for ef in c.get("envFrom", []) or [] if ef.get("secretRef")}),
+                    "secret_volumes": sorted({vols[m["name"]]["secret"]["secretName"] for m in c.get("volumeMounts", []) or []
+                                              if m.get("name") in vols and vols[m["name"]].get("secret")}),
+                    "service_account": sp.get("serviceAccountName", "default"), "exceptions": exc,
+                    "writable_mounts": [m["mountPath"] for m in c.get("volumeMounts", []) or [] if not m.get("readOnly")],
+                    "image_overlays": [m["mountPath"] for m in c.get("volumeMounts", []) or [] if not m.get("readOnly")
+                                       and re.match(r"^/(usr|bin|sbin|lib|lib64|opt|app|srv|etc)(/|$)", m["mountPath"])],
                     "has_requests": bool((res.get("requests") or {}).get("cpu")) and bool((res.get("requests") or {}).get("memory")),
                     "has_limits": bool((res.get("limits") or {}).get("cpu")) and bool((res.get("limits") or {}).get("memory")),
                 })
@@ -305,9 +337,22 @@ class Evidence:
             self.events["netpol"].append({"name": np_["metadata"]["name"], "scope": "policy", "selects_all": all_pods,
                                           "policy_types": types, "default_deny_ingress": di, "default_deny_egress": do,
                                           "ingress_rules": len(sp.get("ingress") or []), "egress_rules": len(sp.get("egress") or [])})
+        import ipaddress
+        meta = ipaddress.ip_address(METADATA_IP)
+        allows_meta = False
+        for np_ in pols:
+            for rule in (np_["spec"].get("egress") or []):
+                tos = rule.get("to") or []
+                if not tos:
+                    allows_meta = True  # allow-all egress rule
+                for t in tos:
+                    ib = t.get("ipBlock")
+                    if ib and meta in ipaddress.ip_network(ib["cidr"], strict=False) and not any(meta in ipaddress.ip_network(x, strict=False) for x in ib.get("except", [])):
+                        allows_meta = True
         self.events["netpol"].append({"name": self.ns, "scope": "namespace", "policies": len(pols), "pods": len(self.pods),
                                       "default_deny_ingress": deny_in, "default_deny_egress": deny_out,
-                                      "default_deny": deny_in and deny_out})
+                                      "default_deny": deny_in and deny_out,
+                                      "metadata_api_blocked": deny_out and not allows_meta})
 
     # ---- profiles and the admission policy
     def _profiles(self):
@@ -349,6 +394,62 @@ class Evidence:
             if m and "by-image" in r.get("name", ""):
                 self._kyv.append((r.get("name"), m.group(1)))
         return self._kyv
+
+    # ---- Secrets of the namespace: who references them, how, how old
+    def _secrets(self):
+        refs = {}
+        for e in self.events["spec"]:
+            for n in e["env_secret_refs"]:
+                refs.setdefault(n, {"workloads": set(), "tiers": set(), "env": True, "volume": False})["workloads"].add(e["workload"]); refs[n]["tiers"].add(e["tier"])
+            for n in e["secret_volumes"]:
+                r = refs.setdefault(n, {"workloads": set(), "tiers": set(), "env": False, "volume": True}); r["workloads"].add(e["workload"]); r["tiers"].add(e["tier"]); r["volume"] = True
+        now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+        for sec in kget(["-n", self.ns, "get", "secrets"]):
+            t = sec.get("type", "")
+            if t.startswith("helm.sh/") or t == "kubernetes.io/service-account-token":
+                continue
+            name = sec["metadata"]["name"]
+            r = refs.get(name, {"workloads": set(), "tiers": set(), "env": False, "volume": False})
+            age = int((now - (ts(sec["metadata"].get("creationTimestamp")) or now)) / 86400)
+            self.events["secret"].append({"name": name, "type": t, "age_days": age, "keys": sorted((sec.get("data") or {}).keys()),
+                                          "referenced_by": sorted(r["workloads"]), "ref_count": len(r["workloads"]), "shared": len(r["workloads"]) > 1,
+                                          "tiers": sorted(x for x in r["tiers"] if x), "cross_tier": len({x for x in r["tiers"] if x}) > 1,
+                                          "via_env": r["env"], "via_volume": r["volume"], "referenced": bool(r["workloads"])})
+
+    # ---- RBAC: what each running pod's ServiceAccount can do
+    def _rbac(self):
+        roles = {("Role", r["metadata"]["name"]): r.get("rules", []) for r in kget(["-n", self.ns, "get", "roles"])}
+        roles.update({("ClusterRole", r["metadata"]["name"]): r.get("rules", []) for r in kget(["get", "clusterroles"])})
+        bindings = []
+        for b in kget(["-n", self.ns, "get", "rolebindings"]):
+            bindings.append((b, False))
+        for b in kget(["get", "clusterrolebindings"]):
+            bindings.append((b, True))
+        sas = {}
+        for p in self.events["pod"]:
+            sas.setdefault(p["service_account"], set()).add(p["workload"])
+        for sa, workloads in sorted(sas.items()):
+            ev = {"service_account": sa, "workloads": sorted(workloads), "workload": ", ".join(sorted(workloads)), "is_default": sa == "default",
+                  "bindings": [], "cluster_scoped": False, "admin": False, "wildcard_verbs": False, "wildcard_resources": False,
+                  "secrets_read": False, "exec": False, "escalate": False, "delete": False, "rules": 0}
+            for b, cluster in bindings:
+                if not any(sub.get("kind") == "ServiceAccount" and sub.get("name") == sa and sub.get("namespace", self.ns) == self.ns for sub in b.get("subjects") or []):
+                    continue
+                rr = b["roleRef"]; ev["bindings"].append(f"{'ClusterRoleBinding' if cluster else 'RoleBinding'}/{b['metadata']['name']}->{rr['kind']}/{rr['name']}")
+                ev["cluster_scoped"] |= cluster
+                ev["admin"] |= rr["name"] in ("cluster-admin", "admin", "edit")
+                for rule in roles.get((rr["kind"], rr["name"]), []):
+                    ev["rules"] += 1
+                    verbs, res = set(rule.get("verbs", [])), set(rule.get("resources", []))
+                    ev["wildcard_verbs"] |= "*" in verbs
+                    ev["wildcard_resources"] |= "*" in res or "*" in set(rule.get("apiGroups", []) or [])
+                    ev["secrets_read"] |= ("secrets" in res or "*" in res) and bool(verbs & {"get", "list", "watch", "*"})
+                    ev["exec"] |= bool(res & {"pods/exec", "pods/portforward", "pods/attach"}) or ("*" in res and bool(verbs & {"create", "*"}))
+                    ev["escalate"] |= bool(verbs & {"escalate", "bind", "impersonate"}) or (("*" in res) and ("*" in verbs))
+                    ev["delete"] |= bool(verbs & {"delete", "deletecollection"}) or "*" in verbs
+            ev["has_bindings"] = bool(ev["bindings"])
+            ev["overscoped"] = ev["admin"] or ev["wildcard_verbs"] or ev["wildcard_resources"] or ev["secrets_read"] or ev["exec"] or ev["escalate"]
+            self.events["rbac"].append(ev)
 
     # ---- runtime detections
     def _runtime(self):
@@ -426,15 +527,16 @@ class Evidence:
         s, u = self.since, self.until
         sql = f"""
         SELECT 'http' proto, pod, trace_role, remote_addr, local_port, encrypted, req_method method, req_path path, resp_status status,
-               count() c, max(req_headers LIKE '%{UA}%') evaluator, max(req_headers LIKE '%adr-driver/%') driver
+               count() c, max(req_headers LIKE '%{UA}%') evaluator, max(req_headers LIKE '%adr-driver/%') driver,
+               anyIf(extract(req_headers, '"[Xx]-[Tt]est-[Cc]ase":"([^"]+)"'), req_headers LIKE '%est-%ase%') test_case
         FROM forensic_db.http_events WHERE namespace='{self.ns}' AND time_ BETWEEN fromUnixTimestamp64Nano({s}000000000) AND fromUnixTimestamp64Nano({u}000000000)
         GROUP BY ALL
         UNION ALL
-        SELECT 'pgsql', pod, trace_role, remote_addr, local_port, encrypted, '', substring(req,1,40), 0, count(), 0, 0
+        SELECT 'pgsql', pod, trace_role, remote_addr, local_port, encrypted, '', substring(req,1,40), 0, count(), 0, 0, ''
         FROM forensic_db.pgsql_events WHERE namespace='{self.ns}' AND time_ BETWEEN fromUnixTimestamp64Nano({s}000000000) AND fromUnixTimestamp64Nano({u}000000000)
         GROUP BY ALL
         UNION ALL
-        SELECT 'conn', pod, trace_role, remote_addr, remote_port, ssl, '', '', 0, count(), 0, 0
+        SELECT 'conn', pod, trace_role, remote_addr, remote_port, ssl, '', '', 0, count(), 0, 0, ''
         FROM forensic_db.conn_stats WHERE namespace='{self.ns}' AND time_ BETWEEN fromUnixTimestamp64Nano({s}000000000) AND fromUnixTimestamp64Nano({u}000000000)
         GROUP BY ALL"""
         try:
@@ -465,6 +567,7 @@ class Evidence:
                 "kubelet_probe": kind == "node" and server and str(r["local_port"]) in meta["probe_ports"],
                 "health_path": r["path"] in HEALTH_PATHS,
                 "via_ingress": kind == "ingress", "egress_external": (not server) and kind == "external",
+                "test_case": r.get("test_case") or "",
                 "edge": [src_tier, dst_tier],
             })
 
@@ -621,6 +724,7 @@ class Evidence:
                 "window": {"from": self.since, "to": self.until, "seconds": self.until - self.since},
                 "rows": self.raw_rows, "rules_seen": getattr(self, "rules_seen", []),
                 "wire_rows": sum(e["count"] for e in self.events["wire"]),
+                "test_cases": sorted({e["test_case"] for e in self.events["wire"] if e.get("test_case")}),
                 "static": "static controls from " + self.scan_path if self.scan_present else "no kubescape scan supplied",
                 "warmup_s": self.warmup_s, "notes": self.notes,
                 "counts": {k: len(v) for k, v in self.events.items()}}

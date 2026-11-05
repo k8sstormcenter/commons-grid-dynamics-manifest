@@ -30,7 +30,7 @@ Every ADR has the same sections: Decision · Why · How it is checked · What a 
 * every pod carries `app.kubernetes.io/tier` and `kubescape.io/user-defined-profile` naming a profile that exists in its namespace (an unbound pod is unwatched)
 * the tier profile declares the edges the architecture prescribes by label selector — otherwise allowed traffic alerts and the platform, not the application, owns the finding
 * pods are older than the warm-up (210 s) before network rules are judged
-* the application was driven over its prescribed edges (`compliance/drive.py`) — an unexercised edge cannot be COMPLIANT
+* the application was put under realistic traffic (`harness/load.sh`: its own k6 suite or generator, else the browser stand-in) — an unexercised edge cannot be COMPLIANT; requests tagged `X-Test-Case` name the use case in the proof
 * a kubescape scan is supplied for the static controls, or those ADRs stay NOT_OBSERVED
 
 ## The decision set
@@ -40,7 +40,7 @@ Every ADR has the same sections: Decision · Why · How it is checked · What a 
 | [0001](0001-strict-tier-layering.md) | Strict tier layering | Tiers are strictly layered; the presentation tier never reaches the data tier | sbob.egress, sbob.ingress, netpol |
 | [0002](0002-data-tier-makes-no-outbound-calls.md) | Data tier makes no outbound calls | The data tier never initiates outbound connections | sbob.egress, netpol |
 | [0003](0003-only-the-backend-holds-cluster-credentials.md) | Only the backend holds cluster credentials | Only the backend tier holds cluster credentials | sbob.opens, kyverno.validate |
-| [0004](0004-images-immutable-at-runtime.md) | Images immutable at runtime | Images are immutable at runtime; nothing is installed after build | sbob.execs |
+| [0004](0004-images-immutable-at-runtime.md) | Images immutable at runtime | Images are immutable at runtime; nothing is installed after build | kyverno.validate, sbob.execs |
 | [0005](0005-every-workload-is-classified-and-bound.md) | Every workload is classified and bound | Every workload is classified and bound to its tier profile; an unrecognised one is quarantined | kyverno.mutate, clone-tier-sbobs |
 | [0006](0006-run-as-non-root.md) | Run as non-root | Workloads run as non-root | kyverno.validate, sbob.capabilities |
 | [0007](0007-detection-cannot-be-switched-off-by-a-profile.md) | Detection cannot be switched off by a profile | A profile may not wildcard above a path another rule protects | sbob.authoring |
@@ -50,6 +50,9 @@ Every ADR has the same sections: Decision · Why · How it is checked · What a 
 | [0013](0013-resources-probes-and-security-context-declared.md) | Resources, probes and security context declared | Every workload declares its envelope: resources, probes, security context | kyverno.validate |
 | [0014](0014-images-pinned-by-digest.md) | Images pinned by digest | Images are pinned by digest, signed; no latest | kyverno.validate, cosign |
 | [0015](0015-ingress-belongs-to-the-platform.md) | Ingress belongs to the platform | Ingress is the platform's; a workload opens nothing itself | kyverno.validate, netpol |
+| [0016](0016-no-shared-or-long-lived-credentials.md) | No shared or long-lived credentials | Credentials are per workload, short-lived, and never in environment variables or manifests | kyverno.validate, secret-rotation, workload-identity |
+| [0017](0017-least-privilege-rbac.md) | Least-privilege RBAC | A workload's ServiceAccount holds only the permissions its code uses; nothing is bound to default | rbac-review, kyverno.validate |
+| [0018](0018-no-privilege-no-host-surface.md) | No privilege, no host surface | Workloads are unprivileged, touch no host path, load no kernel module and cannot reach the cloud metadata API | kyverno.validate, netpol, sbob.capabilities |
 
 ## Prescribed edges
 
