@@ -1,7 +1,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
-const BASE = __ENV.BASE_URL || 'https://commons-grid.local';
+const BASE = __ENV.BASE_URL || 'https://commons-grid-dynamics.commons-grid.svc';
 const DURATION = __ENV.DURATION || '60s';
 
 // to get a token we reach the IdP service directly and send the Host header it expects

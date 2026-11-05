@@ -14,7 +14,7 @@ data:
     import http from 'k6/http';
     import { check, sleep } from 'k6';
     
-    const BASE = __ENV.BASE_URL || 'https://commons-grid.local';
+    const BASE = __ENV.BASE_URL || 'https://commons-grid-dynamics.commons-grid.svc';
     const DURATION = __ENV.DURATION || '60s';
     
     // to get a token we reach the IdP service directly and send the Host header it expects
@@ -91,10 +91,6 @@ spec:
       labels:
         app: commons-grid-loadgen
     spec:
-      hostAliases:
-        - ip: "10.43.105.14"
-          hostnames:
-            - commons-grid.local
       containers:
         - name: k6
           image: docker.io/grafana/k6:latest@sha256:3e4186aea62e11a45560bfc51e19eeafe82fc07ce069c78aff44b7ff893d9a5e
@@ -104,7 +100,7 @@ spec:
             - while true; do k6 run /scripts/k6.js; sleep 5; done
           env:
             - name: BASE_URL
-              value: https://commons-grid.local
+              value: https://commons-grid-dynamics.commons-grid.svc
             - name: DURATION
               value: "60s"
             - name: ZITADEL_URL

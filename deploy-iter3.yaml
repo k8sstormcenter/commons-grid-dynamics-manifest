@@ -36,12 +36,13 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: commons-grid-tls
+  name: commons-grid-dynamics-tls
   namespace: commons-grid
 spec:
-  secretName: commons-grid-tls
+  secretName: commons-grid-dynamics-tls
   dnsNames:
-    - commons-grid.local
+    - commons-grid-dynamics
+    - commons-grid-dynamics.commons-grid.svc
   issuerRef:
     name: platform-ca
     kind: ClusterIssuer
@@ -299,7 +300,7 @@ spec:
           image: ghcr.io/k8sstormcenter/commons-grid-dynamics@sha256:8634cccd986899e5722066eeb925f481910841d87f01a69ccd3e2effc5cfe6e8
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8080
+            - containerPort: 8443
           resources:
             requests:
               cpu: 50m
@@ -315,13 +316,15 @@ spec:
           livenessProbe:
             httpGet:
               path: /
-              port: 8080
+              port: 8443
+              scheme: HTTPS
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /
-              port: 8080
+              port: 8443
+              scheme: HTTPS
             initialDelaySeconds: 2
             periodSeconds: 5
           volumeMounts:
@@ -331,6 +334,9 @@ spec:
               mountPath: /etc/nginx/conf.d
             - name: ca
               mountPath: /etc/nginx/ca
+              readOnly: true
+            - name: tls
+              mountPath: /etc/nginx/tls
               readOnly: true
             - name: tmp
               mountPath: /tmp
@@ -354,6 +360,10 @@ spec:
               - key: ca.crt
                 path: ca.crt
             defaultMode: 0440
+        - name: tls
+          secret:
+            secretName: commons-grid-dynamics-tls
+            defaultMode: 0440
         - name: tmp
           emptyDir: {}
 ---
@@ -362,37 +372,18 @@ kind: Service
 metadata:
   name: commons-grid-dynamics
   namespace: commons-grid
+  annotations:
+    tailscale.com/expose: "true"
+    tailscale.com/hostname: "commons-grid"
+    tailscale.com/tags: "tag:edge4"
 spec:
   type: ClusterIP
   selector:
     app: commons-grid-dynamics
   ports:
-    - port: 80
-      targetPort: 8080
----
-# ---------- ingress (platform, TLS) ----------
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: commons-grid
-  namespace: commons-grid
-spec:
-  ingressClassName: traefik
-  tls:
-    - hosts:
-        - commons-grid.local
-      secretName: commons-grid-tls
-  rules:
-    - host: commons-grid.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: commons-grid-dynamics
-                port:
-                  number: 80
+    - port: 443
+      targetPort: 8443
+      name: https
 ---
 # ---------- network policies ----------
 apiVersion: networking.k8s.io/v1
@@ -439,9 +430,12 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: traefik
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tailscale-system
       ports:
         - protocol: TCP
-          port: 8080
+          port: 8443
   egress:
     - to:
         - podSelector:
@@ -1694,7 +1688,9 @@ metadata:
 data:
   default.conf: |
     server {
-      listen 8080;
+      listen 8443 ssl;
+      ssl_certificate /etc/nginx/tls/tls.crt;
+      ssl_certificate_key /etc/nginx/tls/tls.key;
       root /usr/share/nginx/html;
       index index.html;
       location = /callback { try_files /index.html =404; }
