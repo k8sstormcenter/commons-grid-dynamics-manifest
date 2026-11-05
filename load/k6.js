@@ -1,28 +1,25 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
-const BASE = __ENV.BASE_URL || 'http://commons-grid-dynamics.commons-grid.svc';
+const BASE = __ENV.BASE_URL || 'https://commons-grid.local';
 const DURATION = __ENV.DURATION || '60s';
 
-// the API needs a token now; a load driver logs in with client credentials
+// to get a token we reach the IdP service directly and send the Host header it expects
+const ZITADEL_URL = __ENV.ZITADEL_URL || 'http://zitadel.zitadel.svc:8080';
+const ZITADEL_HOST = __ENV.ZITADEL_HOST || 'localhost:8080';
 const CLIENT_ID = __ENV.CLIENT_ID || '';
 const CLIENT_SECRET = __ENV.CLIENT_SECRET || '';
-const PROJECT_ID = __ENV.PROJECT_ID || '';
-const TOKEN_ENDPOINT = __ENV.TOKEN_ENDPOINT || '';
 
 export const options = {
+  insecureSkipTLSVerify: true,
   scenarios: { adr_driver: { executor: 'constant-vus', vus: 2, duration: DURATION } },
 };
 
 export function setup() {
-  if (!CLIENT_ID || !CLIENT_SECRET || !TOKEN_ENDPOINT) return { token: '' };
-  const body = {
-    grant_type: 'client_credentials',
-    client_id: CLIENT_ID,
-    client_secret: CLIENT_SECRET,
-    scope: 'openid profile',
-  };
-  const r = http.post(TOKEN_ENDPOINT, body, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+  if (!CLIENT_ID || !CLIENT_SECRET) return { token: '' };
+  const r = http.post(ZITADEL_URL + '/oauth/v2/token',
+    { grant_type: 'client_credentials', client_id: CLIENT_ID, client_secret: CLIENT_SECRET, scope: 'openid' },
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Host': ZITADEL_HOST } });
   let token = '';
   try { token = JSON.parse(r.body).access_token || ''; } catch (e) { token = ''; }
   return { token };
@@ -57,8 +54,7 @@ export default function (data) {
   const ens = post(data, 'ensemble', '/api/ensemble', { P: {}, seeds: [1, 2, 3] });
   let runs = [];
   try { runs = JSON.parse(ens.body); if (!Array.isArray(runs)) runs = []; } catch (e) { runs = []; }
-  // fire every use case unconditionally so they all show on the wire
-  post(data, 'summarise', '/api/summarise', { runs });
+  post(data, 'summarise', '/api/summarise', { runs: runs.slice(0, 3) });
   post(data, 'sweep2D', '/api/sweep2D', { base: {}, xKey: 'audit', yKey: 'fine', nx: 3, ny: 3, seeds: [1, 2] });
   post(data, 'sweepRun', '/api/sweepRun', { P: { audit: 0.5, fine: 1000 }, seeds: [1, 2] });
 
