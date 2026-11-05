@@ -91,6 +91,10 @@ spec:
       labels:
         app: commons-grid-loadgen
     spec:
+      hostAliases:
+        - ip: "10.43.105.14"
+          hostnames:
+            - commons-grid.local
       containers:
         - name: k6
           image: docker.io/grafana/k6:latest@sha256:3e4186aea62e11a45560bfc51e19eeafe82fc07ce069c78aff44b7ff893d9a5e
