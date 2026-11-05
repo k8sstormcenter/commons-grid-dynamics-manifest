@@ -3,7 +3,8 @@
 # Deliberately generic. The platform cannot know which application a team will ship,
 # so this allows every process and every file a workload of this tier might use.
 # What it still says no to:
-#   - the network edges of the tier (who it may call, who may call it)
+#   - the network edges of the tier (who it may call, who may call it), on any port:
+#     the platform cannot know an application's ports; NetworkPolicy owns them
 #   - capabilities outside CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH, CAP_IPC_LOCK, CAP_NET_ADMIN, CAP_NET_BIND_SERVICE
 #   - everything listed in the subtract fragments composed on top (see compose.sh)
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
@@ -27,8 +28,8 @@ spec:
     - CAP_NET_ADMIN
     - CAP_NET_BIND_SERVICE
   egress:
-    - {dns: "", dnsNames: null, identifier: database-tier, ipAddress: "", namespaceSelector: null, podSelector: {matchLabels: {app.kubernetes.io/tier: database}}, ports: [{name: TCP-5432, port: 5432, protocol: TCP}, {name: TCP-3306, port: 3306, protocol: TCP}, {name: TCP-27017, port: 27017, protocol: TCP}, {name: TCP-6379, port: 6379, protocol: TCP}], type: ""}
-    - {dns: "", dnsNames: null, identifier: middleware-peers, ipAddress: "", namespaceSelector: null, podSelector: {matchLabels: {app.kubernetes.io/tier: middleware}}, ports: [{name: TCP-9092, port: 9092, protocol: TCP}, {name: TCP-9093, port: 9093, protocol: TCP}, {name: TCP-2181, port: 2181, protocol: TCP}, {name: TCP-2888, port: 2888, protocol: TCP}, {name: TCP-3888, port: 3888, protocol: TCP}, {name: TCP-5672, port: 5672, protocol: TCP}, {name: TCP-25672, port: 25672, protocol: TCP}, {name: TCP-4222, port: 4222, protocol: TCP}, {name: TCP-6222, port: 6222, protocol: TCP}, {name: TCP-8222, port: 8222, protocol: TCP}], type: ""}
+    - {dns: "", dnsNames: null, identifier: database-tier, ipAddress: "", namespaceSelector: null, podSelector: {matchLabels: {app.kubernetes.io/tier: database}}, ports: null, type: ""}
+    - {dns: "", dnsNames: null, identifier: middleware-peers, ipAddress: "", namespaceSelector: null, podSelector: {matchLabels: {app.kubernetes.io/tier: middleware}}, ports: null, type: ""}
     - {dns: "", dnsNames: null, identifier: dns, ipAddress: "", namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}, ports: [{name: UDP-53, port: 53, protocol: UDP}, {name: TCP-53, port: 53, protocol: TCP}], type: ""}
   endpoints: null
   execs:
@@ -38,8 +39,8 @@ spec:
   imageID: ""
   imageTag: ""
   ingress:
-    - {dns: "", dnsNames: null, identifier: backend-tier, ipAddress: "", namespaceSelector: null, podSelector: {matchLabels: {app.kubernetes.io/tier: backend}}, ports: [{name: TCP-9092, port: 9092, protocol: TCP}, {name: TCP-5672, port: 5672, protocol: TCP}, {name: TCP-4222, port: 4222, protocol: TCP}, {name: TCP-6379, port: 6379, protocol: TCP}, {name: TCP-15672, port: 15672, protocol: TCP}, {name: TCP-8080, port: 8080, protocol: TCP}], type: ""}
-    - {dns: "", dnsNames: null, identifier: middleware-peers, ipAddress: "", namespaceSelector: null, podSelector: {matchLabels: {app.kubernetes.io/tier: middleware}}, ports: [{name: TCP-9092, port: 9092, protocol: TCP}, {name: TCP-2181, port: 2181, protocol: TCP}, {name: TCP-2888, port: 2888, protocol: TCP}, {name: TCP-3888, port: 3888, protocol: TCP}, {name: TCP-25672, port: 25672, protocol: TCP}, {name: TCP-6222, port: 6222, protocol: TCP}], type: ""}
+    - {dns: "", dnsNames: null, identifier: backend-tier, ipAddress: "", namespaceSelector: null, podSelector: {matchLabels: {app.kubernetes.io/tier: backend}}, ports: null, type: ""}
+    - {dns: "", dnsNames: null, identifier: middleware-peers, ipAddress: "", namespaceSelector: null, podSelector: {matchLabels: {app.kubernetes.io/tier: middleware}}, ports: null, type: ""}
   opens:
     - {flags: [O_CLOEXEC, O_DIRECTORY, O_NONBLOCK, O_PATH, O_RDONLY], path: /}
     - {flags: [O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT, O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE, O_NOATIME, O_NOCTTY, O_NOFOLLOW, O_NONBLOCK, O_PATH, O_RDONLY, O_RDWR, O_SYNC, O_TMPFILE, O_TRUNC, O_WRONLY], path: /*}
