@@ -40,12 +40,10 @@ Every ADR has the same sections: Decision · Why · How it is checked · What a 
 | [0001](0001-strict-tier-layering.md) | Strict tier layering | Tiers are strictly layered; the presentation tier never reaches the data tier | sbob.egress, sbob.ingress, netpol |
 | [0002](0002-data-tier-makes-no-outbound-calls.md) | Data tier makes no outbound calls | The data tier never initiates outbound connections | sbob.egress, netpol |
 | [0003](0003-only-the-backend-holds-cluster-credentials.md) | Only the backend holds cluster credentials | Only the backend tier holds cluster credentials | sbob.opens, kyverno.validate |
-| [0004](0004-images-immutable-at-runtime.md) | Images immutable at runtime | Images are immutable at runtime; nothing is installed after build | sbob.execs, sbob.dns, sbob.egress |
+| [0004](0004-images-immutable-at-runtime.md) | Images immutable at runtime | Images are immutable at runtime; nothing is installed after build | sbob.execs |
 | [0005](0005-every-workload-declares-its-tier.md) | Every workload declares its tier | Every workload declares its tier; an undeclared one is quarantined | kyverno.mutate, clone-tier-sbobs |
 | [0006](0006-run-as-non-root.md) | Run as non-root | Workloads run as non-root | kyverno.validate, sbob.capabilities |
 | [0007](0007-detection-cannot-be-switched-off-by-a-profile.md) | Detection cannot be switched off by a profile | A profile may not wildcard above a path another rule protects | sbob.authoring |
-| [0008](0008-frontend-serves-presentation-only.md) | Frontend serves presentation only | The presentation tier serves presentation only | content-probe |
-| [0009](0009-tier-declared-never-guessed.md) | Tier declared, never guessed | A tier is declared, never guessed | kyverno.mutate |
 | [0010](0010-requests-authenticated-by-the-platform-idp.md) | Requests authenticated by the platform IdP | Every backend request is authenticated by the platform identity provider | app-code, idp-client |
 | [0011](0011-no-plaintext-on-the-wire.md) | No plaintext on the wire | No plaintext on the wire | platform-ingress, cert-manager, app-config |
 | [0012](0012-metrics-on-a-dedicated-port.md) | Metrics on a dedicated port | Metrics are served on a dedicated port, scraped only by the platform | kyverno.validate, netpol |

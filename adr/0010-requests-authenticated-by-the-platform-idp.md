@@ -29,9 +29,6 @@ Each matching event is a finding with the observed event, the decision it broke 
 
 Markers counted in the served client code (declared in `compliance/adrs.yaml`, app-neutral):
 
-* `numeric_solvers` (a function with such a name is computation): `\b(rk4|dp45|runge|kutta|jacobian|eigen(value|vector)s?|newton|solve(Linear|Ode|Ivp)|integrat(e|or)|monte ?carlo|ensemble)\b`
-* `statistics` (a function with such a name is computation): `\b(gauss(ian)?|poisson|gamma|lognormal|binom(ial)?|gini|quantile|variance)\b`
-* `simulation` (a function with such a name is computation): `\b(simulat(e|ion|or)|sweep|timestep)\b`
 * `client_state`: `\b(localStorage|sessionStorage|indexedDB)\b`
 * `backend_calls`: `\b(fetch\(|XMLHttpRequest|WebSocket|EventSource|axios)\b`
 * `auth`: `\b(Authorization|Bearer|login|signin|oauth|openid|jwt|csrf)\b`

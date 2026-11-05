@@ -10,7 +10,7 @@ adrs.yaml + adr_text.yaml ──adr_docs.py──► ../adr/NNNN-*.md, ../adr/RE
 adrs.yaml ──engine.py──► per-ADR status + findings + proof
                  ▲
      evidence.py │ events from: ClickHouse (kubescape_logs, http/pgsql/conn_stats), kubectl
-                 │ (pods, specs, svc, ingress, netpol, ContainerProfiles, kyverno policy),
+                 │ (pods, specs, svc, ingress, netpol, ContainerProfiles),
                  │ kubescape scan JSON, the evaluator's HTTP probes, the page a frontend serves
 adr_kpi.py   the CLI the harness runs  → artefacts/kpi-<ns>-iterN.json
 adr_mcp.py   the same evaluator as an MCP server; every call also writes forensic_db.adr_findings
@@ -64,12 +64,11 @@ note the finding carries.
 | `svc` / `ingress` | object | type, ports, node_ports, plaintext_ports, exposed / tls, hosts |
 | `netpol` | policy, plus one `scope: namespace` row | selects_all, default_deny_ingress, default_deny_egress, default_deny, policies |
 | `profile` | ContainerProfile (GET each) | name, tier, opens, execs, wildcards, wildcard_paths, token_paths, token_concrete, has_egress, has_ingress, signed |
-| `policy` | the kyverno tier policy | image_rules, port_rules, has_port_fallback |
 | `runtime` | distinct detection on a live pod | rule, severity, pod, workload, container, tier, node, profile, image, image_digest, process, pcomm, cmdline, message, count, pod_age_s, direction, peer_ip, peer_port, peer_kind (pod/node/evaluator/external/departed/dns/unknown), peer_pod, peer_tier (tier or `ns:<namespace>`), edge, edge_prescribed, kubelet_probe, domain, path, exec, capability |
 | `wire` | aggregated flow | proto (http/pgsql/conn), role, src_pod, src_tier, dst_pod, dst_tier, remote_ip, remote_kind, remote_ns, port, encrypted, method, path, status, count, kubelet_probe, health_path |
 | `scan` | failed control × fix path | control, name, path, severity, resources, value, action, agent_can_apply |
 | `probe` | request the evaluator made | workload, tier, url, path, auth (none/garbage/valid), status, via, route, reachable |
-| `content` | page-serving pod | serves_page, bytes, js_bytes, js_kb, scripts, functions, defined_solvers, n_solvers, datasets, n_datasets, api_paths, n_api_paths, backend_calls, auth_markers, client_state, marker_* |
+| `content` | page-serving pod | serves_page, bytes, js_bytes, js_kb, scripts, functions, api_paths, n_api_paths, backend_calls, auth_markers, client_state, marker_* |
 
 Runtime events are filtered to pods that exist now and to detections that postdate the pod
 (the fix-and-verify loop must not see the previous revision's evidence); identical detections

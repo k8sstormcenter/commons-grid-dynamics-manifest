@@ -138,7 +138,6 @@ REPRO = {
     "ingress": "kubectl -n <ns> get ingress,ingressroutes.traefik.io,httproutes.gateway.networking.k8s.io -o yaml | grep -n -E 'kind:|host|tls|entryPoints|parentRefs'",
     "netpol": "kubectl -n <ns> get netpol -o yaml",
     "profile": "kubectl -n <ns> get containerprofiles.spdx.softwarecomposition.kubescape.io <name> -o json | jq '[.spec.opens[].path]'   # GET each; LIST returns an empty spec",
-    "policy": "kubectl get clusterpolicy assign-workload-tier -o yaml | grep -n 'name: tier-by-'",
     "scan": "kubescape scan framework AllControls --include-namespaces <ns> --format json --output /tmp/AllControls-<ns>.json",
     "scan_present": "ls -l /tmp/AllControls-<ns>.json   # the scan file the evaluator was given",
     "probe": "curl -sk -o /dev/null -w '%{{http_code}}\\n' http://<backend-pod-ip>:<port><route>   # then with -H 'Authorization: Bearer not.a.token', then with a platform-minted token",
@@ -170,7 +169,7 @@ def render_adr(a):
     if any(p["source"] == "content" for p in a.get("violated", []) + a.get("observed", [])):
         L += ["", "Markers counted in the served client code (declared in `compliance/adrs.yaml`, app-neutral):", ""]
         for k, rx in SPEC.get("content_markers", {}).items():
-            L.append(f"* `{k}`" + (" (a function with such a name is computation)" if k in SPEC.get("definition_markers", []) else "") + f": `{rx}`")
+            L.append(f"* `{k}`: `{rx}`")
     L += ["", "## How to fix", ""]
     seen = set()
     for p in a.get("violated", []):

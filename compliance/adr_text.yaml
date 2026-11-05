@@ -50,14 +50,15 @@ ADR-0004:
   status: accepted
   applies_to: every tier
   decision: >-
-    No package manager and no general-purpose fetch tool executes inside a running container.
-    Every dependency is resolved at build time and baked into the image; a running container
-    needs no package repository and no external download.
+    No package manager and no general-purpose fetch tool executes inside a running container, and
+    nothing that was not part of the container image is executed. Every dependency is resolved at
+    build time and baked into the image.
   why: >-
     Installing at runtime makes the running image unknowable and gives an attacker the tooling
-    they would otherwise have to bring. The process rule is the noisiest of the set (lowest severity):
-    it fires on any binary the profile does not list, so the finding names the binary and the
-    engine discounts processes started by exec probes and by the tracer.
+    they would otherwise have to bring. The decisive signal is drift: a binary executed that the
+    image does not contain. A process the tier profile does not list (a package manager, a fetch
+    tool) is the second signal; it is the noisiest of the set (lowest severity), so the finding
+    names the binary and the engine discounts processes started by exec probes and by the tracer.
 
 ADR-0005:
   status: accepted
@@ -102,33 +103,6 @@ ADR-0007:
     disables the rule that watches it, and a suppressed rule produces exactly the silence a passing
     check produces. No runtime evidence can confirm this ADR; the stored profile has to be read back
     — the files on disk are not enough, because collapsing happens on write.
-
-ADR-0008:
-  status: proposed
-  applies_to: tier=frontend
-  decision: >-
-    A tier=frontend workload serves the shell of the application: markup, styling, static assets and
-    the client code needed to call a tier=backend API. Concretely: at most 50 KB of client code
-    (inline plus the scripts the page loads); no numerical-solver, simulation or statistics routines
-    defined in client code; no business datasets embedded in served assets; no application state in
-    browser storage; and at least one backend call, so the frontend→backend edge exists.
-  why: >-
-    The generated monolith ships the whole application as one page: engine, data and state in the
-    browser, no backend, no authentication and nothing to observe at runtime. The content probe
-    measures the page; the thresholds are the decision. A solver the page merely names (a route, a
-    tab label) is a call; only a solver the page defines counts.
-
-ADR-0009:
-  status: proposed
-  applies_to: every workload; the admission policy
-  decision: >-
-    The tier of a workload is declared by its author in the manifest. Admission validates a declared
-    tier and assigns one only for images it recognises; a container port is never evidence of a tier.
-    A workload with no declaration and an unrecognised image is tier=unclassified regardless of its port.
-  why: >-
-    A port fallback turned a monolith on port 80 into a trusted frontend with the lenient frontend
-    profile. A guessed tier shows up later as a profile mismatch, which is the wrong place to learn it.
-    The applied manifest (last-applied-configuration) is what tells declared from assigned.
 
 ADR-0010:
   status: proposed

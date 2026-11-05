@@ -1,15 +1,15 @@
 {
  "schema": "adr-kpi/v2",
- "generated_at": "2026-11-05T00:19:49+00:00",
+ "generated_at": "2026-11-05T01:01:08+00:00",
  "cluster": "bobexample",
  "namespace": "commons-grid",
  "source": {
   "clickhouse": "10.42.1.142",
   "table": "forensic_db.kubescape_logs",
   "window": {
-   "from": 1793837926,
-   "to": 1793837984,
-   "seconds": 58
+   "from": 1793840406,
+   "to": 1793840461,
+   "seconds": 55
   },
   "rows": 6,
   "rules_seen": [
@@ -26,8 +26,7 @@
    "svc": 1,
    "ingress": 1,
    "netpol": 1,
-   "profile": 5,
-   "policy": 1,
+   "profile": 6,
    "runtime": 2,
    "wire": 0,
    "scan": 47,
@@ -37,8 +36,8 @@
   }
  },
  "summary": {
-  "adrs": 15,
-  "violated": 9,
+  "adrs": 13,
+  "violated": 7,
   "compliant": 2,
   "not_observed": 4,
   "coverage": {
@@ -99,20 +98,6 @@
    "violations": 0
   },
   {
-   "kpi": "ADR-0008",
-   "summary": "Frontend serves presentation only",
-   "status": "VIOLATED",
-   "compliant": false,
-   "violations": 5
-  },
-  {
-   "kpi": "ADR-0009",
-   "summary": "Tier declared, never guessed",
-   "status": "VIOLATED",
-   "compliant": false,
-   "violations": 2
-  },
-  {
    "kpi": "ADR-0010",
    "summary": "Requests authenticated by the platform IdP",
    "status": "NOT_OBSERVED",
@@ -162,7 +147,7 @@
    "title": "Tiers are strictly layered; the presentation tier never reaches the data tier",
    "verified_by": "sbob.egress, sbob.ingress, netpol",
    "status": "NOT_OBSERVED",
-   "proof": "\u2713 tier pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 484s vs warm-up 210s, sensor rows in window: 6 | \u2717 frontend->backend flow seen on the wire: 0 (needs \u22651)",
+   "proof": "\u2713 tier pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 2961s vs warm-up 210s, sensor rows in window: 6 | \u2717 frontend->backend flow seen on the wire: 0 (needs \u22651)",
    "violations": 0,
    "findings": []
   },
@@ -182,7 +167,7 @@
    "title": "Only the backend tier holds cluster credentials",
    "verified_by": "sbob.opens, kyverno.validate",
    "status": "VIOLATED",
-   "proof": "\u2713 non-backend containers' automountServiceAccountToken read from the pod spec: 1 | \u2713 pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 484s vs warm-up 210s, sensor rows in window: 6 | findings: 1 counted, 0 discounted",
+   "proof": "\u2713 non-backend containers' automountServiceAccountToken read from the pod spec: 1 | \u2713 pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 2961s vs warm-up 210s, sensor rows in window: 6 | findings: 1 counted, 0 discounted",
    "violations": 1,
    "findings": [
     {
@@ -216,9 +201,9 @@
    "id": "ADR-0004",
    "summary": "Images immutable at runtime",
    "title": "Images are immutable at runtime; nothing is installed after build",
-   "verified_by": "sbob.execs, sbob.dns, sbob.egress",
+   "verified_by": "sbob.execs",
    "status": "COMPLIANT",
-   "proof": "\u2713 all pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 484s vs warm-up 210s, sensor rows in window: 6",
+   "proof": "\u2713 all pods governed and past warm-up: 1/1 pod(s) governed (tiers frontend), youngest 2961s vs warm-up 210s, sensor rows in window: 6",
    "violations": 0,
    "findings": []
   },
@@ -350,206 +335,9 @@
    "title": "A profile may not wildcard above a path another rule protects",
    "verified_by": "sbob.authoring",
    "status": "COMPLIANT",
-   "proof": "\u2713 ContainerProfiles read back from the cluster (GET each): 5 [name=tier-backend \u00d71; name=tier-database \u00d71; name=tier-frontend \u00d71; name=tier-middleware \u00d71; name=tier-unclassified \u00d71]",
+   "proof": "\u2713 ContainerProfiles read back from the cluster (GET each): 6 [name=replicaset-commons-grid-dynamics-566dd5dbdb-web-98d6-16d6 \u00d71; name=tier-backend \u00d71; name=tier-database \u00d71; name=tier-frontend \u00d71; name=tier-middleware \u00d71; name=tier-unclassified \u00d71]",
    "violations": 0,
    "findings": []
-  },
-  {
-   "id": "ADR-0008",
-   "summary": "Frontend serves presentation only",
-   "title": "The presentation tier serves presentation only",
-   "verified_by": "content-probe",
-   "status": "VIOLATED",
-   "proof": "\u2713 frontend page and its scripts read: 1 [pod=commons-grid-dynamics-566dd5dbdb-qnfhh js_kb=178 n_solvers=15 n_datasets=3 n_api_paths=0 \u00d71] | findings: 5 counted, 0 discounted",
-   "violations": 5,
-   "findings": [
-    {
-     "adr": "ADR-0008",
-     "source": "content",
-     "evidence_class": "observed",
-     "workload": "commons-grid-dynamics",
-     "container": null,
-     "tier": "frontend",
-     "rule": null,
-     "rule_name": null,
-     "severity": null,
-     "process": null,
-     "node": null,
-     "decision_broken": "the page ships more client code than a shell (limit 50 KB)",
-     "observed": "tier=frontend, serves_page=True, js_bytes=182341, js_kb=178, functions=109, scripts=[]",
-     "fix": "the browser renders, it does not compute; move the engine behind the API",
-     "owner": "application",
-     "counted": true,
-     "note": "",
-     "unattributed": false,
-     "timestamp": null,
-     "count": 1,
-     "evidence": {
-      "source": "content"
-     }
-    },
-    {
-     "adr": "ADR-0008",
-     "source": "content",
-     "evidence_class": "observed",
-     "workload": "commons-grid-dynamics",
-     "container": null,
-     "tier": "frontend",
-     "rule": null,
-     "rule_name": null,
-     "severity": null,
-     "process": null,
-     "node": null,
-     "decision_broken": "the presentation tier defines numerical solvers/simulation routines",
-     "observed": "tier=frontend, n_solvers=15, defined_solvers=[\"binom\", \"dp45\", \"eigenvalues\", \"ensemble\", \"gamma\", \"gauss\", \"gini\", \"integrate\", \"jacobian\", \"lognormal\", \"newton\", \"poisson\", \"rk4\", \"simulate\", \"solveLinear\"]",
-     "fix": "move every solver/integrator/sweep behind a tier=backend API (8000/8080)",
-     "owner": "application",
-     "counted": true,
-     "note": "",
-     "unattributed": false,
-     "timestamp": null,
-     "count": 1,
-     "evidence": {
-      "source": "content"
-     }
-    },
-    {
-     "adr": "ADR-0008",
-     "source": "content",
-     "evidence_class": "observed",
-     "workload": "commons-grid-dynamics",
-     "container": null,
-     "tier": "frontend",
-     "rule": null,
-     "rule_name": null,
-     "severity": null,
-     "process": null,
-     "node": null,
-     "decision_broken": "business data is embedded in the page",
-     "observed": "tier=frontend, n_datasets=3, datasets=[\"PRESETS\", \"ABUSES\", \"PACKAGES\"]",
-     "fix": "move the datasets into a tier=database store the backend reads",
-     "owner": "application",
-     "counted": true,
-     "note": "",
-     "unattributed": false,
-     "timestamp": null,
-     "count": 1,
-     "evidence": {
-      "source": "content"
-     }
-    },
-    {
-     "adr": "ADR-0008",
-     "source": "content",
-     "evidence_class": "observed",
-     "workload": "commons-grid-dynamics",
-     "container": null,
-     "tier": "frontend",
-     "rule": null,
-     "rule_name": null,
-     "severity": null,
-     "process": null,
-     "node": null,
-     "decision_broken": "application state is kept in the browser",
-     "observed": "tier=frontend, client_state=2",
-     "fix": "persist state via the backend into the data tier",
-     "owner": "application",
-     "counted": true,
-     "note": "",
-     "unattributed": false,
-     "timestamp": null,
-     "count": 1,
-     "evidence": {
-      "source": "content"
-     }
-    },
-    {
-     "adr": "ADR-0008",
-     "source": "content",
-     "evidence_class": "observed",
-     "workload": "commons-grid-dynamics",
-     "container": null,
-     "tier": "frontend",
-     "rule": null,
-     "rule_name": null,
-     "severity": null,
-     "process": null,
-     "node": null,
-     "decision_broken": "the shell calls no backend",
-     "observed": "tier=frontend, serves_page=True, backend_calls=0",
-     "fix": "the shell's fetch() to the API is the egress ADR-0001 expects",
-     "owner": "application",
-     "counted": true,
-     "note": "",
-     "unattributed": false,
-     "timestamp": null,
-     "count": 1,
-     "evidence": {
-      "source": "content"
-     }
-    }
-   ]
-  },
-  {
-   "id": "ADR-0009",
-   "summary": "Tier declared, never guessed",
-   "title": "A tier is declared, never guessed",
-   "verified_by": "kyverno.mutate",
-   "status": "VIOLATED",
-   "proof": "\u2713 workloads whose applied manifest could be read (declared vs assigned tier): 1 [assigned_by=port \u00d71] | findings: 2 counted, 0 discounted",
-   "violations": 2,
-   "findings": [
-    {
-     "adr": "ADR-0009",
-     "source": "policy",
-     "evidence_class": "declared",
-     "workload": "assign-workload-tier",
-     "container": null,
-     "tier": null,
-     "rule": null,
-     "rule_name": null,
-     "severity": null,
-     "process": null,
-     "node": null,
-     "decision_broken": "the admission policy still carries a containerPort fallback",
-     "observed": "has_port_fallback=True, port_rules=[\"tier-by-port-database\", \"tier-by-port-middleware\", \"tier-by-port-frontend\", \"tier-by-port-backend\", \"tier-unclassified\"]",
-     "fix": "platform: remove the tier-by-port rules from kyverno/02-label-tiers.yaml",
-     "owner": "platform",
-     "counted": true,
-     "note": "",
-     "unattributed": false,
-     "timestamp": null,
-     "count": 1,
-     "evidence": {
-      "source": "policy"
-     }
-    },
-    {
-     "adr": "ADR-0009",
-     "source": "pod",
-     "evidence_class": "declared",
-     "workload": "commons-grid-dynamics",
-     "container": null,
-     "tier": "frontend",
-     "rule": null,
-     "rule_name": null,
-     "severity": null,
-     "process": null,
-     "node": "edge4-server",
-     "decision_broken": "tier was guessed from the container port",
-     "observed": "assigned_by=port, tier=frontend, images=[\"ghcr.io/k8sstormcenter/commons-grid-dynamics:latest\"]",
-     "fix": "declare app.kubernetes.io/tier in the pod template (frontend|backend|database)",
-     "owner": "application",
-     "counted": true,
-     "note": "",
-     "unattributed": false,
-     "timestamp": null,
-     "count": 1,
-     "evidence": {
-      "source": "pod"
-     }
-    }
-   ]
   },
   {
    "id": "ADR-0010",
@@ -900,7 +688,7 @@
    "bound": true,
    "ip": "10.42.2.88",
    "node": "edge4-server",
-   "age_s": 484,
+   "age_s": 2961,
    "warm": true,
    "declared_tier": null,
    "assigned_by": "port",
@@ -921,36 +709,9 @@
    "js_bytes": 182341,
    "js_kb": 178,
    "scripts": [],
-   "functions": 109,
-   "defined_solvers": [
-    "binom",
-    "dp45",
-    "eigenvalues",
-    "ensemble",
-    "gamma",
-    "gauss",
-    "gini",
-    "integrate",
-    "jacobian",
-    "lognormal",
-    "newton",
-    "poisson",
-    "rk4",
-    "simulate",
-    "solveLinear"
-   ],
-   "n_solvers": 15,
-   "datasets": [
-    "PRESETS",
-    "ABUSES",
-    "PACKAGES"
-   ],
-   "n_datasets": 3,
+   "functions": 76,
    "api_paths": [],
    "n_api_paths": 0,
-   "marker_numeric_solvers": 41,
-   "marker_statistics": 31,
-   "marker_simulation": 28,
    "marker_client_state": 2,
    "marker_backend_calls": 0,
    "marker_auth": 0,

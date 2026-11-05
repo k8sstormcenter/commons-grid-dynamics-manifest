@@ -234,7 +234,7 @@ class Engine:
 def evaluate(namespace, since, until, scan=None, live=True, spec_path=SPEC_PATH):
     spec = load_spec(spec_path)
     ev = evidence.Evidence(namespace, since, until, scan=scan, live=live, warmup_s=spec.get("warmup_s", 210),
-                           markers=spec.get("content_markers"), definition_markers=spec.get("definition_markers"))
+                           markers=spec.get("content_markers"))
     return Engine(spec, ev).evaluate()
 
 

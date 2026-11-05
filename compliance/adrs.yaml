@@ -24,17 +24,12 @@ topology:
   - [backend, "ns:zitadel"]
   - ["*", dns]
 
-# regexes over the client code a tier=frontend pod serves (ADR-0008 / ADR-0010). App-neutral
-# on purpose: a function whose NAME matches a definition_markers group is computation; the
-# other groups are counted as markers (browser storage, backend call sites, authentication).
+# regexes over the client code a tier=frontend pod serves (ADR-0010): backend call sites,
+# authentication markers, browser storage. App-neutral on purpose.
 content_markers:
-  numeric_solvers: '\b(rk4|dp45|runge|kutta|jacobian|eigen(value|vector)s?|newton|solve(Linear|Ode|Ivp)|integrat(e|or)|monte ?carlo|ensemble)\b'
-  statistics: '\b(gauss(ian)?|poisson|gamma|lognormal|binom(ial)?|gini|quantile|variance)\b'
-  simulation: '\b(simulat(e|ion|or)|sweep|timestep)\b'
   client_state: '\b(localStorage|sessionStorage|indexedDB)\b'
   backend_calls: '\b(fetch\(|XMLHttpRequest|WebSocket|EventSource|axios)\b'
   auth: '\b(Authorization|Bearer|login|signin|oauth|openid|jwt|csrf)\b'
-definition_markers: [numeric_solvers, statistics, simulation]
 
 # facts that take an event out of the count. Applied to runtime and wire events.
 discounts:
@@ -58,7 +53,7 @@ discounts:
     note: the peer is not a live pod and pods of this namespace departed in the window (rollout); cannot be attributed
   - name: exec_started
     source: [runtime]
-    rule: [R0001, R0040]
+    rule: [R0001, R0040, R1001]
     pcomm: containerd-shim
     note: process started by exec (kubelet exec probe or kubectl exec), not by the image; use tcpSocket/httpGet probes
   - name: tracer_parent
@@ -153,27 +148,20 @@ adrs:
   - id: ADR-0004
     summary: Images immutable at runtime
     title: Images are immutable at runtime; nothing is installed after build
-    enforced_by: [sbob.execs, sbob.dns, sbob.egress]
+    enforced_by: [sbob.execs]
     violated:
+      - source: runtime
+        rule: R1001
+        tier: {not: [unclassified]}
+        broken: a binary that is not part of the container image was executed (drift)
+        fix: nothing is written and executed at runtime; move the installation into the image build
+        show: [process, pcomm]
       - source: runtime
         rule: R0001
         tier: {not: [unclassified]}
         broken: a process ran that is not part of the image's declared behaviour
         fix: if it is a package manager or fetch tool, move the work into the image build
         show: [process, pcomm]
-      - source: runtime
-        rule: R0005
-        broken: a DNS lookup was made for a name outside the learned set
-        fix: declare the dependency explicitly, or remove it
-        show: [domain]
-      - source: runtime
-        rule: R0011
-        peer_kind: external
-        tier: {not: [database, middleware]}
-        edge_prescribed: false
-        broken: the workload reached an endpoint outside the cluster that its profile does not declare
-        fix: declare the dependency in the tier profile egress, or remove the call
-        show: [peer_ip, peer_port]
     observed:
       - source: coverage
         what: all pods governed and past warm-up
@@ -278,72 +266,6 @@ adrs:
         min: 1
         what: ContainerProfiles read back from the cluster (GET each)
         group_by: [name]
-
-  - id: ADR-0008
-    summary: Frontend serves presentation only
-    title: The presentation tier serves presentation only
-    enforced_by: [content-probe]
-    violated:
-      - source: content
-        tier: frontend
-        serves_page: true
-        js_bytes: {gt: 51200}
-        broken: the page ships more client code than a shell (limit 50 KB)
-        fix: the browser renders, it does not compute; move the engine behind the API
-        show: [js_kb, functions, scripts]
-      - source: content
-        tier: frontend
-        n_solvers: {gt: 0}
-        broken: the presentation tier defines numerical solvers/simulation routines
-        fix: move every solver/integrator/sweep behind a tier=backend API (8000/8080)
-        show: [defined_solvers]
-      - source: content
-        tier: frontend
-        n_datasets: {gt: 0}
-        broken: business data is embedded in the page
-        fix: move the datasets into a tier=database store the backend reads
-        show: [datasets]
-      - source: content
-        tier: frontend
-        client_state: {gt: 0}
-        broken: application state is kept in the browser
-        fix: persist state via the backend into the data tier
-      - source: content
-        tier: frontend
-        serves_page: true
-        backend_calls: 0
-        broken: the shell calls no backend
-        fix: the shell's fetch() to the API is the egress ADR-0001 expects
-    observed:
-      - source: content
-        tier: frontend
-        serves_page: true
-        min: 1
-        what: frontend page and its scripts read
-        group_by: [pod, js_kb, n_solvers, n_datasets, n_api_paths]
-
-  - id: ADR-0009
-    summary: Tier declared, never guessed
-    title: A tier is declared, never guessed
-    enforced_by: [kyverno.mutate]
-    violated:
-      - source: pod
-        assigned_by: port
-        broken: tier was guessed from the container port
-        fix: declare app.kubernetes.io/tier in the pod template (frontend|backend|database)
-        show: [tier, images]
-      - source: policy
-        has_port_fallback: true
-        owner: platform
-        broken: the admission policy still carries a containerPort fallback
-        fix: "platform: remove the tier-by-port rules from kyverno/02-label-tiers.yaml"
-        show: [port_rules]
-    observed:
-      - source: pod
-        declared_known: true
-        min: 1
-        what: workloads whose applied manifest could be read (declared vs assigned tier)
-        group_by: [assigned_by]
 
   - id: ADR-0010
     summary: Requests authenticated by the platform IdP

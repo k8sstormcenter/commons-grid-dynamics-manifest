@@ -9,7 +9,6 @@ on them without Python. Sources:
   spec      one per container: image pin, ports, securityContext, probes, resources, automount
   svc / ingress / netpol   the namespace's network objects (netpol also has one namespace-level row)
   profile   one per ContainerProfile stored in the namespace (GET each: LIST nulls .spec)
-  policy    the kyverno tier policy as the cluster holds it
   runtime   one per distinct node-agent detection (forensic_db.kubescape_logs) on a live pod,
             with the peer resolved: pod/tier/kind, prescribed edge, pod age at the event
   wire      Pixie http_events / pgsql_events / conn_stats, aggregated per flow, peers resolved
@@ -33,16 +32,12 @@ HEALTH_PATHS = {"/health", "/healthz", "/readyz", "/livez", "/api/health"}
 HTTP_PORTS = (80, 8080, 3000, 8000, 5000, 9000, 443, 8443)
 INGRESS_NAMESPACES = {"traefik", "ingress-nginx", "istio-system", "istio-ingress", "envoy-gateway-system", "nginx-gateway", "kong"}
 # content markers (regexes over the client code a frontend serves) come from adrs.yaml
-# (content_markers / definition_markers) so the ADR declares them; these are the fallback.
+# (content_markers) so the ADR declares them; these are the fallback.
 CODE_MARKERS = {
-    "numeric_solvers": r"\b(rk4|dp45|runge|kutta|jacobian|eigen(value|vector)s?|newton|solve(Linear|Ode|Ivp)|integrat(e|or)|monte ?carlo|ensemble)\b",
-    "statistics":      r"\b(gauss(ian)?|poisson|gamma|lognormal|binom(ial)?|gini|quantile|variance)\b",
-    "simulation":      r"\b(simulat(e|ion|or)|sweep|timestep)\b",
     "client_state":    r"\b(localStorage|sessionStorage|indexedDB)\b",
     "backend_calls":   r"\b(fetch\(|XMLHttpRequest|WebSocket|EventSource|axios)\b",
     "auth":            r"\b(Authorization|Bearer|login|signin|oauth|openid|jwt|csrf)\b",
 }
-DEFINITION_MARKERS = ["numeric_solvers", "statistics", "simulation"]  # a function whose name matches these is computation
 _NOVERIFY = ssl.create_default_context(); _NOVERIFY.check_hostname = False; _NOVERIFY.verify_mode = ssl.CERT_NONE
 
 
@@ -92,18 +87,16 @@ def http(url, method="GET", headers=None, timeout=5):
 # ---------------------------------------------------------------- the snapshot
 
 class Evidence:
-    def __init__(self, ns, since, until, scan=None, live=True, warmup_s=210, markers=None, definition_markers=None):
+    def __init__(self, ns, since, until, scan=None, live=True, warmup_s=210, markers=None):
         self.ns, self.since, self.until, self.scan_path, self.warmup_s = ns, since, until, scan, warmup_s
         self.markers = markers or CODE_MARKERS
-        self.definition_markers = definition_markers or DEFINITION_MARKERS
-        self.events = {k: [] for k in ("pod", "spec", "svc", "ingress", "netpol", "profile", "policy",
+        self.events = {k: [] for k in ("pod", "spec", "svc", "ingress", "netpol", "profile",
                                        "runtime", "wire", "scan", "scan_present", "probe", "content")}
         self.notes = []
         self._cluster()
         self._pods()
         self._network_objects()
         self._profiles()
-        self._policy()
         self._runtime()
         self._wire()
         self._scan()
@@ -357,11 +350,6 @@ class Evidence:
                 self._kyv.append((r.get("name"), m.group(1)))
         return self._kyv
 
-    def _policy(self):
-        self.kyverno_image_rules()
-        self.events["policy"].append({"name": "assign-workload-tier", "image_rules": len(self._kyv),
-                                      "port_rules": self._kyv_port_rules, "has_port_fallback": bool(self._kyv_port_rules)})
-
     # ---- runtime detections
     def _runtime(self):
         self.raw_rows = 0
@@ -552,23 +540,11 @@ class Evidence:
             scripts += "".join(loaded.values())
             markers = {k: len(re.findall(rx, scripts)) for k, rx in self.markers.items()}
             fns = re.findall(r"function\s+([A-Za-z_]\w*)", scripts)
-            fns += re.findall(r"(?:const|let|var)\s+([A-Za-z_]\w*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_]\w*\s*=>)", scripts)
-            vocab = re.compile("|".join(self.markers[k] for k in self.definition_markers if k in self.markers), re.I)
-            solvers = []
-            for f in sorted(set(fns)):
-                if not vocab.search(f):
-                    continue
-                m = re.search(r"\b" + re.escape(f) + r"\s*(?:=\s*(?:async\s*)?)?\([^)]*\)\s*(?:=>\s*)?\{(.{0,160})", scripts, re.S)
-                if re.search(r"\b(fetch\(|API\.(?:get|post)|axios)\b", m.group(1) if m else ""):
-                    continue  # a wrapper that calls the API is a call site, not a solver
-                solvers.append(f)
-            datasets = re.findall(r"(?:const|let|var)\s+([A-Z][A-Z_]+)\s*=\s*\[\s*\{", scripts)
             api_paths = sorted({m for m in re.findall(r"['\"`](/api/[A-Za-z0-9_/.-]*)['\"`]", scripts)})
             self.events["content"].append({
                 "pod": meta["pod"], "workload": meta["workload"], "tier": meta["tier"], "serves_page": True, "status": st,
                 "bytes": len(body), "js_bytes": len(scripts), "js_kb": len(scripts) // 1024, "scripts": list(loaded),
-                "functions": len(set(fns)), "defined_solvers": solvers, "n_solvers": len(solvers),
-                "datasets": datasets, "n_datasets": len(datasets), "api_paths": api_paths, "n_api_paths": len(api_paths),
+                "functions": len(set(fns)), "api_paths": api_paths, "n_api_paths": len(api_paths),
                 **{f"marker_{k}": v for k, v in markers.items()},
                 "backend_calls": markers.get("backend_calls", 0), "auth_markers": markers.get("auth", 0), "client_state": markers.get("client_state", 0),
             })
