@@ -33,7 +33,30 @@ Pull secret honey/duckling-pull stayed entlein after the hook (checked). dx-ktls
 croedig; the wire-PII rows stay NOT_OBSERVED until a body source exists (Pixieagent asks AEDX about the existing
 ecapture image).
 
-## The wire-PII path (G4, G5, G16) is not scoreable yet — and why
+## Third run 06:22–06:26Z — with the OpenSSL tap (bodies on the wire)
+
+Tap: Pixieagent's existing image `tanzeee/ecapture:8d8b148`, `tls` text mode, BTF core, on the frontend nginx's
+libssl.so.3 (OpenSSL 3.5.9), privileged hostPID pod in honey, egress denied by NetworkPolicy, events to a rotating
+file on an emptyDir (`--eventaddr=/tap/events.log`, `-t 8192`; the container log rotates at 10 MiB and lost the
+window on the first try). `platform/ossl-tap.{yaml,sh}`. The evaluator reads the window's blocks (header
+`[ts] PID TID Comm FD READ|WRITE (n bytes):` + payload, Tuple lines for local→remote), attributes pod/role by IP,
+and feeds them to `pii` (classes) and `wire` (hops, encrypted=1, X-Test-Case).
+
+Window: 3171 body rows, 947 wire rows, 6 use cases (list/save/load runs+simulations), edge frontend→backend seen
+through TLS. Verdicts over the 8 new ADRs: 0020 VIOLATED, 0021 VIOLATED (no SBOM; backend 1 critical / 13 relevant
+high; frontend image private → unscanned), 0022 COMPLIANT, 0023 VIOLATED, **0024 NOT_OBSERVED** (bodies inspected ✓,
+no personal data in the application's traffic, but no `/openapi.json` → the schema half is missing; stays
+NOT_OBSERVED by design), **0025 COMPLIANT** (logs clean in this window; the earlier email-in-log hit was my own
+`?email=` test URL echoed by nginx's access log — the control works), **0026 VIOLATED** (canary subject created 201 via
+the k6-shaped body learned from the tap, `DELETE /api/runs/122813` → **501 Not Implemented**; ids sequential —
+informational), 0027 COMPLIANT. All 24: 6 / 16 / 2. ADR-0001/0011 now also COMPLIANT on tap evidence (915 flows).
+
+What a coder would be told after this run: (1) build via the platform template (provenance + SBOM), (2) fix the
+critical/13 relevant high CVEs by rebuilding on a current base, (3) `gdpr-processing` ConfigMap, (4) serve
+`/openapi.json`, (5) implement `DELETE /api/runs/{id}`, (6) make the frontend image public or give the platform a
+pull secret. Platform: the tap is per-pod and manual today; a DaemonSet form (dx-ktls openssl mode) is the real fix.
+
+## The wire-PII path (status before the tap) (G4, G5, G16) is not scoreable yet — and why
 
 * dx-ktls 49a3d1e hooks Go crypto/tls only (kubelet); nginx (OpenSSL 3.5.9/musl) and CPython (OpenSSL 3.5.7/glibc)
   are not covered — new code (SSL_read/SSL_write uprobes), Pixieagent/Buildagent's build.

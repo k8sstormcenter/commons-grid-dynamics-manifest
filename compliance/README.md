@@ -111,3 +111,12 @@ and the `idp-client` secret in the namespace for the platform-token probe; PyYAM
 `forensic_db.adr_findings` (DDL in `../sql/adr_findings.sql`): one row per finding and one per
 ADR without findings — `status`, `counted`, `note`, `owner`, `proof`, `decision_broken`,
 `observed`, `fix`, `iteration`, `tool`. `../pxl/adr_findings.pxl` reads the last 30 minutes.
+
+## Wire bodies (ADR-0024/0025/0027 — personal data on the wire)
+
+Request/response bodies come from (a) `forensic_db.dx_kubelet_stream` rows with `source='openssl'` (dx-ktls OpenSSL
+mode, when it ships), (b) Pixie `http_events`, (c) the OpenSSL tap `platform/ossl-tap.sh <ns>` — ecapture on the
+frontend pod's libssl, events in `/tap/events.log` of pod `honey/ossl-tap-frontend` (annotation `adr/tap-file`).
+The evaluator classifies bodies itself (email, ipv4 (public only), ccn (Luhn), iban, ssn, phone + its own canary) and
+compares with the `gdpr-processing` ConfigMap. Tap hops also count as wire evidence (encrypted=1, X-Test-Case).
+The tap file holds plaintext bodies and Authorization headers: `platform/ossl-tap.sh --stop` after the window.

@@ -1,25 +1,31 @@
 {
  "schema": "adr-kpi/v2",
- "generated_at": "2026-11-06T06:09:13+00:00",
+ "generated_at": "2026-11-06T06:22:35+00:00",
  "cluster": "bobexample",
  "namespace": "commons-grid",
  "source": {
   "clickhouse": "10.42.1.142",
   "table": "forensic_db.kubescape_logs",
   "window": {
-   "from": 1793944739,
-   "to": 1793945339,
-   "seconds": 600
+   "from": 1793946090,
+   "to": 1793946132,
+   "seconds": 42
   },
-  "rows": 1653,
+  "rows": 757,
   "rules_seen": [
-   "R0012",
-   "R1018"
+   "R0012"
   ],
-  "wire_rows": 56,
-  "pii_rows": 0,
-  "canary": "adr-canary-gaf2kvun",
-  "test_cases": [],
+  "wire_rows": 947,
+  "pii_rows": 3171,
+  "canary": "adr-canary-fmdivxhi",
+  "test_cases": [
+   "list-runs",
+   "list-simulations",
+   "load-run",
+   "load-simulation",
+   "save-run",
+   "save-simulation"
+  ],
   "component_load": [
    {
     "workload": "commons-grid-backend",
@@ -27,7 +33,7 @@
     "port": 9100,
     "status": 200,
     "series": 11,
-    "requests": 572129
+    "requests": 578179
    },
    {
     "workload": "commons-grid-dynamics",
@@ -35,10 +41,12 @@
     "port": 9113,
     "status": 200,
     "series": 4,
-    "requests": 724052
+    "requests": 731682
    }
   ],
-  "edges_seen": [],
+  "edges_seen": [
+   "frontend->backend"
+  ],
   "static": "static controls from /tmp/AllControls-commons-grid.json",
   "warmup_s": 210,
   "notes": [
@@ -53,8 +61,8 @@
    "profile": 17,
    "secret": 3,
    "rbac": 1,
-   "runtime": 2,
-   "wire": 2,
+   "runtime": 1,
+   "wire": 915,
    "scan": 17,
    "scan_present": 1,
    "probe": 10,
@@ -63,7 +71,7 @@
    "attest": 2,
    "declare": 1,
    "schema": 1,
-   "pii": 0,
+   "pii": 1,
    "logs": 2,
    "erasure": 1,
    "vulns": 2
@@ -71,9 +79,9 @@
  },
  "summary": {
   "adrs": 24,
-  "violated": 4,
-  "compliant": 15,
-  "not_observed": 5,
+  "violated": 6,
+  "compliant": 16,
+  "not_observed": 2,
   "coverage": {
    "pods": 2,
    "governed": 2,
@@ -85,8 +93,8 @@
   {
    "kpi": "ADR-0001",
    "summary": "Strict tier layering",
-   "status": "NOT_OBSERVED",
-   "compliant": false,
+   "status": "COMPLIANT",
+   "compliant": true,
    "violations": 0
   },
   {
@@ -141,16 +149,16 @@
   {
    "kpi": "ADR-0011",
    "summary": "No plaintext on the wire",
-   "status": "NOT_OBSERVED",
-   "compliant": false,
+   "status": "COMPLIANT",
+   "compliant": true,
    "violations": 0
   },
   {
    "kpi": "ADR-0012",
    "summary": "Metrics on a dedicated port",
-   "status": "COMPLIANT",
-   "compliant": true,
-   "violations": 0
+   "status": "VIOLATED",
+   "compliant": false,
+   "violations": 1
   },
   {
    "kpi": "ADR-0013",
@@ -239,9 +247,9 @@
   {
    "kpi": "ADR-0026",
    "summary": "Data-subject rights \u2014 erasure works",
-   "status": "NOT_OBSERVED",
+   "status": "VIOLATED",
    "compliant": false,
-   "violations": 0
+   "violations": 1
   },
   {
    "kpi": "ADR-0027",
@@ -257,8 +265,8 @@
    "summary": "Strict tier layering",
    "title": "Tiers are strictly layered; the presentation tier never reaches the data tier",
    "verified_by": "sbob.egress, sbob.ingress, netpol",
-   "status": "NOT_OBSERVED",
-   "proof": "\u2713 tier pods governed and past warm-up: 2/2 pod(s) governed (tiers backend, frontend), youngest 84085s vs warm-up 210s, sensor rows in window: 1653 | \u2717 frontend->backend flow seen on the wire: 0 (needs \u22651)",
+   "status": "COMPLIANT",
+   "proof": "\u2713 tier pods governed and past warm-up: 2/2 pod(s) governed (tiers backend, frontend), youngest 84878s vs warm-up 210s, sensor rows in window: 757 | \u2713 frontend->backend flow seen on the wire: 915 [proto=tls port=41026 test_case=load-simulation \u00d72; proto=conn port=0 test_case= \u00d71; proto=tls port=40482 test_case=save-simulation \u00d71; proto=tls port=40488 test_case=save-run \u00d71; proto=tls port=40500 test_case=list-simulations \u00d71; proto=tls port=40506 test_case=list-runs \u00d71; proto=tls port=40510 test_case=load-simulation \u00d71; proto=tls port=40516 test_case=load-run \u00d71]",
    "violations": 0,
    "findings": []
   },
@@ -268,7 +276,7 @@
    "title": "The data tier never initiates outbound connections",
    "verified_by": "sbob.egress, netpol",
    "status": "NOT_OBSERVED",
-   "proof": "\u2717 data-tier pods governed and past warm-up: 0/0 pod(s) governed (no pods in these tiers), sensor rows in window: 1653",
+   "proof": "\u2717 data-tier pods governed and past warm-up: 0/0 pod(s) governed (no pods in these tiers), sensor rows in window: 757",
    "violations": 0,
    "findings": []
   },
@@ -278,7 +286,7 @@
    "title": "Only the backend tier holds cluster credentials",
    "verified_by": "sbob.opens, kyverno.validate",
    "status": "COMPLIANT",
-   "proof": "\u2713 non-backend containers' automountServiceAccountToken read from the pod spec: 1 | \u2713 pods governed and past warm-up: 2/2 pod(s) governed (tiers backend, frontend), youngest 84085s vs warm-up 210s, sensor rows in window: 1653",
+   "proof": "\u2713 non-backend containers' automountServiceAccountToken read from the pod spec: 1 | \u2713 pods governed and past warm-up: 2/2 pod(s) governed (tiers backend, frontend), youngest 84878s vs warm-up 210s, sensor rows in window: 757",
    "violations": 0,
    "findings": []
   },
@@ -288,7 +296,7 @@
    "title": "Images are immutable at runtime; nothing is installed after build",
    "verified_by": "kyverno.validate, sbob.execs",
    "status": "COMPLIANT",
-   "proof": "\u2713 all pods governed and past warm-up: 2/2 pod(s) governed (tiers backend, frontend), youngest 84085s vs warm-up 210s, sensor rows in window: 1653 | \u2713 containers' root filesystem mode and volume mounts read from the pod spec: 2",
+   "proof": "\u2713 all pods governed and past warm-up: 2/2 pod(s) governed (tiers backend, frontend), youngest 84878s vs warm-up 210s, sensor rows in window: 757 | \u2713 containers' root filesystem mode and volume mounts read from the pod spec: 2",
    "violations": 0,
    "findings": []
   },
@@ -314,22 +322,22 @@
      "process": "python",
      "node": "edge4-server",
      "decision_broken": "the tier profile does not declare an edge the architecture prescribes, so allowed traffic alerts (platform gap)",
-     "observed": "Unexpected ingress network communication from: 10.42.2.159:8443 using TCP to: api x1623 [edge=['frontend', 'backend'], peer_ip=10.42.2.159, peer_port=8443]",
+     "observed": "Unexpected ingress network communication from: 10.42.2.159:8443 using TCP to: api x757 [edge=['frontend', 'backend'], peer_ip=10.42.2.159, peer_port=8443]",
      "fix": "platform: declare the inter-tier edge (podSelector app.kubernetes.io/tier) in the tier profile egress/ingress (bobctl)",
      "owner": "platform",
      "counted": true,
      "note": "",
      "unattributed": false,
-     "timestamp": "2026-11-06T06:03:50.563718973Z",
-     "count": 1623,
+     "timestamp": "2026-11-06T06:21:30.063059153Z",
+     "count": 757,
      "evidence": {
       "table": "forensic_db.kubescape_logs",
-      "rows": 1623,
+      "rows": 757,
       "profile": "tier-backend",
       "image": "ghcr.io/k8sstormcenter/commons-grid-dynamics-backend:394d04cdc39cd6590cd21b76da2a98ad444468ac@sha256:de8a8b006d979b9d95e0b2788d571f4169c83f703ec87ba119f60ef5e7b45249",
       "uniqueID": "43aed5db7ebeb70af94ca67944b2e5da",
-      "first": "2026-11-06T06:03:50.563718973Z",
-      "last": "2026-11-06T06:06:38.090812572Z"
+      "first": "2026-11-06T06:21:30.063059153Z",
+      "last": "2026-11-06T06:22:11.828136377Z"
      }
     }
    ]
@@ -360,7 +368,7 @@
    "title": "Every backend request is authenticated by the platform identity provider",
    "verified_by": "app-code, idp-client",
    "status": "COMPLIANT",
-   "proof": "\u2713 backend routes probed without a token: 3 [workload=commons-grid-backend status=401 \u00d73]",
+   "proof": "\u2713 backend routes probed without a token: 4 [workload=commons-grid-backend status=401 \u00d73; workload=commons-grid-backend status=200 \u00d71]",
    "violations": 0,
    "findings": []
   },
@@ -369,8 +377,8 @@
    "summary": "No plaintext on the wire",
    "title": "No plaintext on the wire",
    "verified_by": "platform-ingress, cert-manager, app-config",
-   "status": "NOT_OBSERVED",
-   "proof": "\u2713 the frontend is exposed through the platform (tailnet-exposed Service): 1 [hosts=[\"commons-grid\"] tls=True \u00d71] | \u2717 application flows captured on the wire (Pixie): 0 (needs \u22651)",
+   "status": "COMPLIANT",
+   "proof": "\u2713 the frontend is exposed through the platform (tailnet-exposed Service): 1 [hosts=[\"commons-grid\"] tls=True \u00d71] | \u2713 application flows captured on the wire (Pixie): 4 [proto=conn src_tier=frontend dst_tier=backend encrypted=1 test_case= \u00d71]",
    "violations": 0,
    "findings": []
   },
@@ -379,10 +387,36 @@
    "summary": "Metrics on a dedicated port",
    "title": "Metrics are served on a dedicated port, scraped only by the platform",
    "verified_by": "kyverno.validate, netpol",
-   "status": "COMPLIANT",
-   "proof": "\u2713 containerPort names read from the pod spec: 1 | \u2713 /metrics probed on the application port: 1 [workload=commons-grid-backend status=404 \u00d71]",
-   "violations": 0,
-   "findings": []
+   "status": "VIOLATED",
+   "proof": "\u2713 containerPort names read from the pod spec: 1 | \u2713 /metrics probed on the application port: 1 [workload=commons-grid-backend status=200 \u00d71] | findings: 1 counted, 0 discounted",
+   "violations": 1,
+   "findings": [
+    {
+     "adr": "ADR-0012",
+     "source": "probe",
+     "evidence_class": "observed",
+     "workload": "commons-grid-backend",
+     "container": null,
+     "tier": "backend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "/metrics served on the application port",
+     "observed": "path=/metrics, auth=none, status=200, url=https://10.42.2.159:8443/metrics, bytes=201026",
+     "fix": "serve metrics on a port named metrics; 404 /metrics on the application port",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "probe"
+     }
+    }
+   ]
   },
   {
    "id": "ADR-0013",
@@ -552,7 +586,7 @@
      "process": null,
      "node": null,
      "decision_broken": "the image carries known CRITICAL vulnerabilities",
-     "observed": "scanned=True, critical=1, container=api, critical_relevant=0, high=67, image_tag=ghcr.io/k8sstormcenter/commons-grid-dynamics-backend@sha256:de8a8b006d979b9d95e0b2788d571f4169c83f703ec87ba119f60ef5e7b45249, scanned_at=1793945223",
+     "observed": "scanned=True, critical=1, container=api, critical_relevant=0, high=67, image_tag=ghcr.io/k8sstormcenter/commons-grid-dynamics-backend@sha256:de8a8b006d979b9d95e0b2788d571f4169c83f703ec87ba119f60ef5e7b45249, scanned_at=1793945757",
      "fix": "rebuild on a current base image and pinned dependencies; re-scan before pushing",
      "owner": "application",
      "counted": true,
@@ -647,7 +681,7 @@
    "title": "Nothing is downloaded, installed or compiled after the container starts; the image is the only source of code",
    "verified_by": "sbob.exec, sbob.egress, netpol",
    "status": "COMPLIANT",
-   "proof": "\u2713 pods governed and past warm-up (exec and egress rules active): 2/2 pod(s) governed (tiers backend, frontend), youngest 84085s vs warm-up 210s, sensor rows in window: 1653",
+   "proof": "\u2713 pods governed and past warm-up (exec and egress rules active): 2/2 pod(s) governed (tiers backend, frontend), youngest 84878s vs warm-up 210s, sensor rows in window: 757",
    "violations": 0,
    "findings": []
   },
@@ -693,7 +727,7 @@
    "title": "The API accepts, and the wire carries, no category of personal data beyond those declared in the record of processing",
    "verified_by": "openapi.schema, dx-ktls.openssl, pixie.http_events",
    "status": "NOT_OBSERVED",
-   "proof": "\u2717 API schemas read from the backend (/openapi.json): 0 (needs \u22651) | \u2717 request/response bodies inspected on the wire (dx-ktls openssl mode \u2192 dx_kubelet_stream; Pixie http_events): 0 (needs \u22651)",
+   "proof": "\u2717 API schemas read from the backend (/openapi.json): 0 (needs \u22651) | \u2713 request/response bodies inspected on the wire (dx-ktls openssl mode \u2192 dx_kubelet_stream; Pixie http_events): 1 [source=ecapture \u00d71]",
    "violations": 0,
    "findings": []
   },
@@ -703,45 +737,70 @@
    "title": "Personal data never reaches stdout/stderr, metrics labels or request URLs",
    "verified_by": "logs, metrics-port, pixie.http_events",
    "status": "COMPLIANT",
-   "proof": "\u2713 container logs of the window inspected: 2 [clean=True \u00d71; clean=False \u00d71] | findings: 0 counted, 1 discounted (1\u00d7 IP addresses in an access log are personal data)",
+   "proof": "\u2713 container logs of the window inspected: 2 [clean=True \u00d72]",
    "violations": 0,
-   "findings": [
-    {
-     "adr": "ADR-0025",
-     "source": "logs",
-     "evidence_class": "declared",
-     "workload": "commons-grid-dynamics",
-     "container": "web",
-     "tier": "frontend",
-     "rule": null,
-     "rule_name": null,
-     "severity": null,
-     "process": null,
-     "node": null,
-     "decision_broken": "client IP addresses written to the log without ip in the declared categories",
-     "observed": "clean=False, pii_class=ipv4, declared=False, container=web, count=2",
-     "fix": "anonymise the client address in the access log, or declare 'ip' with a purpose",
-     "owner": "application",
-     "counted": false,
-     "note": "IP addresses in an access log are personal data; informational until the record declares them",
-     "unattributed": false,
-     "timestamp": null,
-     "count": 2,
-     "evidence": {
-      "source": "logs"
-     }
-    }
-   ]
+   "findings": []
   },
   {
    "id": "ADR-0026",
    "summary": "Data-subject rights \u2014 erasure works",
    "title": "A subject created through the API can be erased through the API, and is then gone; identifiers are not guessable",
    "verified_by": "evaluator.canary, openapi.schema",
-   "status": "NOT_OBSERVED",
-   "proof": "\u2717 synthetic subject created through the API (canary), erased, re-read: 0 (needs \u22651)",
-   "violations": 0,
-   "findings": []
+   "status": "VIOLATED",
+   "proof": "\u2713 synthetic subject created through the API (canary), erased, re-read: 1 [gone=False \u00d71] | findings: 1 counted, 1 discounted (1\u00d7 informational)",
+   "violations": 1,
+   "findings": [
+    {
+     "adr": "ADR-0026",
+     "source": "erasure",
+     "evidence_class": "declared",
+     "workload": "commons-grid-backend",
+     "container": null,
+     "tier": "backend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "no DELETE for a created subject",
+     "observed": "created=201, erasure_supported=False, collection=/api/runs, id=122813, delete_status=501",
+     "fix": "DELETE /<collection>/{id} removes the record and everything derived from it",
+     "owner": "application",
+     "counted": true,
+     "note": "",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "erasure"
+     }
+    },
+    {
+     "adr": "ADR-0026",
+     "source": "erasure",
+     "evidence_class": "declared",
+     "workload": "commons-grid-backend",
+     "container": null,
+     "tier": "backend",
+     "rule": null,
+     "rule_name": null,
+     "severity": null,
+     "process": null,
+     "node": null,
+     "decision_broken": "sequential numeric identifiers make subjects enumerable",
+     "observed": "id=122813, collection=/api/runs",
+     "fix": "use random identifiers (UUIDv4) for subject records",
+     "owner": "application",
+     "counted": false,
+     "note": "informational; counted once an access endpoint exists",
+     "unattributed": false,
+     "timestamp": null,
+     "count": 1,
+     "evidence": {
+      "source": "erasure"
+     }
+    }
+   ]
   },
   {
    "id": "ADR-0027",
@@ -749,7 +808,7 @@
    "title": "Personal data leaves the namespace only to the platform IdP, the data tier and declared processors; never to an external address",
    "verified_by": "netpol, sbob.egress, dx-ktls",
    "status": "COMPLIANT",
-   "proof": "\u2713 pods governed and past warm-up (egress rules active): 2/2 pod(s) governed (tiers backend, frontend), youngest 84085s vs warm-up 210s, sensor rows in window: 1653",
+   "proof": "\u2713 pods governed and past warm-up (egress rules active): 2/2 pod(s) governed (tiers backend, frontend), youngest 84878s vs warm-up 210s, sensor rows in window: 757",
    "violations": 0,
    "findings": []
   }
@@ -763,7 +822,7 @@
    "bound": true,
    "ip": "10.42.2.62",
    "node": "edge4-server",
-   "age_s": 84085,
+   "age_s": 84878,
    "warm": true,
    "declared_tier": "backend",
    "assigned_by": "declared",
@@ -780,7 +839,7 @@
    "bound": true,
    "ip": "10.42.2.159",
    "node": "edge4-server",
-   "age_s": 84085,
+   "age_s": 84878,
    "warm": true,
    "declared_tier": "frontend",
    "assigned_by": "declared",

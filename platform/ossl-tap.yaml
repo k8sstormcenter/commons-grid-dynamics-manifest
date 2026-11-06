@@ -1,0 +1,37 @@
+# OpenSSL plaintext tap for one frontend pod (ecapture `tls` text mode on the pod's libssl.so.3).
+# The evaluator's `pii` source reads /tap/events.log (annotation adr/tap-file) for the evaluation window.
+# Apply with CID/NODE of the tapped pod (see compliance/README.md "wire bodies"); delete after the window:
+# the event file holds plaintext bodies AND Authorization headers. The NetworkPolicy denies the pod all egress
+# (ecapture phones home at start otherwise).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: ossl-tap-no-egress, namespace: honey}
+spec:
+  podSelector: {matchLabels: {app: ossl-tap}}
+  policyTypes: [Egress, Ingress]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: ossl-tap-frontend, namespace: honey, labels: {app: ossl-tap}, annotations: {adr/tap-file: /tap/events.log}}
+spec:
+  nodeName: ${NODE}
+  hostPID: true
+  imagePullSecrets: [{name: dx-pull}]
+  restartPolicy: Never
+  volumes: [{name: tap, emptyDir: {sizeLimit: 2Gi}}]
+  containers:
+  - name: ecapture
+    image: docker.io/tanzeee/ecapture:8d8b148
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      for d in /proc/[0-9]*; do
+        grep -q "${CID}" $d/cgroup 2>/dev/null || continue
+        grep -q ' /usr/lib/libssl.so.3$' $d/maps 2>/dev/null && pid=${d#/proc/} && break
+      done
+      [ -n "$pid" ] || { echo "no libssl.so.3 process in container ${CID}"; exit 1; }
+      echo "ecapture tls: pid=$pid -> /tap/events.log"
+      exec /ecapture tls --btf=1 --libssl=/proc/$pid/root/usr/lib/libssl.so.3 -t 8192 --eventaddr=/tap/events.log --eventroratesize=1024
+    volumeMounts: [{name: tap, mountPath: /tap}]
+    securityContext: {privileged: true}
+    resources: {limits: {cpu: "1", memory: 1Gi}}
