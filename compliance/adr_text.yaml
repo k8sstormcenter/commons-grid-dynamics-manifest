@@ -259,3 +259,98 @@ ADR-0019:
     the ACL, and a plaintext exposed port would be plaintext up to the proxy. The exposure is read
     from the Service annotations and status; the policy from the NetworkPolicy set.
 
+
+ADR-0020:
+  status: proposed
+  applies_to: every container image in an application namespace
+  decision: >-
+    An image is deployed only with a SLSA provenance attestation attached to its digest, signed by
+    the platform's hosted build workflow (its OIDC identity), and the provenance names the source
+    commit the image tag claims. The platform supplies the build workflow; the application only
+    uses it.
+  why: >-
+    Provenance is the one artefact that ties what runs to who built it from what. Without it a
+    digest is just a hash; with it the deployment can be refused when the builder, the repository
+    or the commit is not the expected one. The registry is read for the attestation, cosign verifies
+    the signature against the builder identity, the running digest is compared with the subject.
+
+ADR-0021:
+  status: proposed
+  applies_to: every container image in an application namespace
+  decision: >-
+    Every image publishes an SBOM next to its digest, and carries no known exploitable or critical
+    vulnerability at deployment time.
+  why: >-
+    An SBOM is what makes a vulnerability disclosure answerable in minutes instead of days. The
+    SBOM referrer is read from the registry; vulnerabilities come from the image scan.
+
+ADR-0022:
+  status: proposed
+  applies_to: every pod in an application namespace
+  decision: >-
+    The image is the only source of code. Nothing is downloaded, installed or compiled after the
+    container starts; no package manager, downloader or compiler runs; no egress reaches a package
+    registry or code host.
+  why: >-
+    A supply chain that is verified at build time is undone by one pip install at runtime. The
+    runtime sensor reports every process that is not in the profile and every egress to an
+    unexpected address; the names of package managers and registries are enough to tell the two
+    cases apart.
+
+ADR-0023:
+  status: proposed
+  applies_to: every application namespace
+  decision: >-
+    Every namespace declares its record of processing (GDPR Art. 30) as the ConfigMap
+    gdpr-processing: controller, purpose, lawful basis, categories of personal data (or none),
+    retention in days and the erasure path. The declaration is the reference every other GDPR
+    check is read against.
+  why: >-
+    Compliance cannot be measured against an unstated intent. The declaration is cheap, lives next
+    to the manifest, and turns "is this personal data?" into "is this declared?".
+
+ADR-0024:
+  status: proposed
+  applies_to: every backend API and every captured request/response body
+  decision: >-
+    The API accepts no personal-data field of a category that is not declared, and the wire carries
+    no category of personal data that is not declared (data minimisation, Art. 5(1)(c), 25).
+  why: >-
+    A generated application collects whatever the prompt mentioned. The OpenAPI schema shows what
+    it accepts; the decrypted bodies on the wire show what it actually carries. Both are compared
+    with the record of processing.
+  notes: >-
+    The wire part needs decrypted bodies (dx-ktls or Pixie TLS tracing). Without them it is
+    NOT_OBSERVED, never COMPLIANT.
+
+ADR-0025:
+  status: proposed
+  applies_to: every container
+  decision: >-
+    Personal data never reaches stdout/stderr, metrics labels or request URLs. A synthetic subject
+    planted by the platform must not appear in any log line.
+  why: >-
+    Logs are copied, retained and read by people with no need to know; a URL ends up in every proxy
+    and browser history. The container logs of the evaluation window are scanned for personal-data
+    classes and for the planted canary.
+
+ADR-0026:
+  status: proposed
+  applies_to: every backend API that stores records about people
+  decision: >-
+    A subject created through the API can be erased through the API (DELETE on the declared erasure
+    path) and is then gone: not retrievable, not listed. Subject identifiers are not guessable.
+  why: >-
+    The right to erasure (Art. 17) is tested, not asserted. The platform creates a synthetic
+    subject with a unique canary value, deletes it, reads it back, and looks for the canary in
+    logs and on the wire.
+
+ADR-0027:
+  status: proposed
+  applies_to: every pod in an application namespace
+  decision: >-
+    Personal data leaves the namespace only to the platform IdP, the application's own data tier
+    and processors named in the record of processing; never to an external address.
+  why: >-
+    A third-party call is a processor contract and a transfer question. Egress is read from the
+    sensor and the wire; bodies on cross-namespace hops are checked for personal data.

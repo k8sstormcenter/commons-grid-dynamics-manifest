@@ -51,6 +51,12 @@ discounts:
     peer_kind: departed
     unattributed: true
     note: the peer is not a live pod and pods of this namespace departed in the window (rollout); cannot be attributed
+  - name: container_start
+    source: [runtime]
+    rule: [R0004]
+    process: {regex: '^runc:\['}
+    owner: platform
+    note: capability used by the container runtime (runc) while creating the container, not by the image's process
   - name: exec_started
     source: [runtime]
     rule: [R0001, R0040, R1001]
@@ -724,3 +730,261 @@ adrs:
         what: Services, exposure annotations and NetworkPolicies of the namespace examined
         group_by: [objects, fronts_frontend, tls]
 
+
+  # ---------------------------------------------------------------- supply chain (SLSA) and GDPR — added 2026-11-06
+  - id: ADR-0020
+    summary: SLSA provenance from the platform builder
+    title: Every deployed image carries signed SLSA provenance from the platform's build workflow, and it names the code that was deployed
+    enforced_by: [cosign.verify-attestation, kyverno.verifyImages]
+    violated:
+      - source: attest
+        pinned: false
+        broken: image not pinned by digest, so no attestation can be bound to it (SLSA L1 needs a subject)
+        fix: "image: <repo>:<code-sha>@sha256:<digest>"
+        show: [container, image]
+      - source: attest
+        pinned: true
+        provenance: false
+        broken: no SLSA provenance attestation is attached to the image digest in the registry (build L1)
+        fix: build with the platform build template (actions/attest-build-provenance or slsa-github-generator pushes the attestation next to the image)
+        show: [container, image, referrers, signature, sbom]
+      - source: attest
+        provenance: true
+        provenance_verified: false
+        broken: provenance present but not verifiable against the platform builder identity and OIDC issuer (build L2)
+        fix: build on the platform's hosted workflow; the attestation must be signed by its OIDC identity
+        show: [container, image, verify_note]
+      - source: attest
+        provenance_verified: true
+        expected_sha: {empty: false}
+        source_matches: false
+        broken: the provenance names a different source commit than the image tag claims
+        fix: tag the image with the commit the workflow built; never retag
+        show: [container, image, source_sha, expected_sha, builder]
+    observed:
+      - source: attest
+        min: 1
+        what: image digests looked up at their registry (provenance, signature, SBOM)
+        group_by: [provenance, provenance_verified, signature]
+
+  - id: ADR-0021
+    summary: SBOM attached, no known critical vulnerabilities
+    title: Every image publishes an SBOM next to its digest and carries no critical or exploitable known vulnerability
+    enforced_by: [cosign.attach-sbom, kubescape.kubevuln]
+    violated:
+      - source: attest
+        pinned: true
+        sbom: false
+        broken: no SBOM (SPDX/CycloneDX) attached to the image digest
+        fix: the platform build template attaches the SBOM (syft + cosign attest --type cyclonedx)
+        show: [container, image, referrers]
+      - source: vulns
+        scanned: true
+        critical: {gt: 0}
+        broken: the image carries known CRITICAL vulnerabilities
+        fix: rebuild on a current base image and pinned dependencies; re-scan before pushing
+        show: [container, critical, critical_relevant, high, image_tag, scanned_at]
+      - source: vulns
+        scanned: true
+        high_relevant: {gt: 0}
+        broken: HIGH vulnerabilities in packages the container actually loads at runtime
+        fix: upgrade the affected packages; the relevancy list names them (vulnerabilitymanifests, relevant)
+        show: [container, high_relevant, high, image_tag]
+      - source: vulns
+        scanned: true
+        high: {gt: 0}
+        high_relevant: 0
+        broken: HIGH vulnerabilities in the image (not loaded at runtime so far)
+        fix: upgrade on the next rebuild
+        show: [container, high, image_tag]
+        counted: false
+        note: informational; counted when the vulnerable package is loaded (relevancy)
+      - source: vulns
+        scanned: false
+        broken: image not scanned in-cluster (no VulnerabilityManifestSummary)
+        fix: "platform: kubevuln must reach the registry; application: public or pull-secret-readable image"
+        show: [container, image]
+        counted: false
+        note: platform/registry access, informational
+    observed:
+      - source: attest
+        min: 1
+        what: image digests looked up for an SBOM
+        group_by: [sbom]
+      - source: vulns
+        scanned: true
+        min: 1
+        what: images scanned in-cluster by kubevuln (severities, relevancy)
+        group_by: [critical, high_relevant]
+
+  - id: ADR-0022
+    summary: No code enters at runtime
+    title: Nothing is downloaded, installed or compiled after the container starts; the image is the only source of code
+    enforced_by: [sbob.exec, sbob.egress, netpol]
+    violated:
+      - source: runtime
+        rule: [R0001, R0040]
+        process: {regex: '^(pip3?|npm|npx|yarn|pnpm|apk|apt|apt-get|dpkg|yum|dnf|gem|cargo|go|curl|wget|git|make|gcc|cc)$'}
+        broken: a package manager, downloader or compiler ran inside the container
+        fix: install at build time; the runtime image carries no package manager
+        show: [container, process, cmdline, pcomm]
+      - source: runtime
+        rule: [R0011]
+        peer_kind: external
+        domain: {regex: '(pypi|pythonhosted|npmjs|yarnpkg|rubygems|crates\.io|proxy\.golang|github\.com|githubusercontent|alpinelinux|debian\.org|ubuntu\.com|docker\.io|ghcr\.io|quay\.io)'}
+        broken: egress to a package or code source at runtime
+        fix: no runtime fetches; vendor at build time
+        show: [container, domain, peer_ip, peer_port]
+      - source: runtime
+        rule: [R0011]
+        peer_kind: external
+        domain: {empty: true}
+        kubelet_probe: false
+        broken: egress to an external address that is not a declared processor or platform service
+        fix: default-deny egress; allow only the prescribed edges
+        show: [container, peer_ip, peer_port, process]
+        counted: false
+        note: external egress without a resolved name; counted under ADR-0027 when personal data is involved, here informational
+    observed:
+      - source: coverage
+        what: pods governed and past warm-up (exec and egress rules active)
+
+  - id: ADR-0023
+    summary: Record of processing declared
+    title: The namespace declares what personal data it processes, why, on which lawful basis, for how long, and how a subject is erased
+    enforced_by: [kyverno.validate, gdpr-processing ConfigMap]
+    violated:
+      - source: declare
+        present: false
+        broken: no record of processing (ConfigMap gdpr-processing) in the namespace
+        fix: "kubectl create configmap gdpr-processing --from-literal=controller=<team> --from-literal=purpose=<why> --from-literal=lawful_basis=<art.6 basis> --from-literal=categories=<email,name,...|none> --from-literal=retention_days=<n> --from-literal=erasure_path=</api/<collection>/{id}>"
+        show: [name]
+      - source: declare
+        present: true
+        complete: false
+        broken: the record of processing is incomplete (purpose, lawful_basis or retention_days missing)
+        fix: fill purpose, lawful_basis, retention_days; categories may be 'none'
+        show: [purpose, lawful_basis, retention_days, categories]
+    observed:
+      - source: declare
+        present: true
+        min: 1
+        what: record of processing read from the namespace
+        group_by: [complete, processes_personal_data]
+
+  - id: ADR-0024
+    summary: Data minimisation — only declared personal data
+    title: The API accepts, and the wire carries, no category of personal data beyond those declared in the record of processing
+    enforced_by: [openapi.schema, dx-ktls.openssl, pixie.http_events]
+    violated:
+      - source: schema
+        field: {empty: false}
+        declared: false
+        broken: the API schema accepts a personal-data field of an undeclared category
+        fix: remove the field, or declare the category (and its purpose) in gdpr-processing
+        show: [field, pii_class]
+      - source: pii
+        pii_class: {not: [canary, ipv4]}
+        declared: false
+        broken: an undeclared class of personal data was observed in request or response bodies
+        fix: stop sending it, or declare the category and its purpose
+        show: [source, direction, pii_class, values, remote_kind, remote_ns, port]
+      - source: pii
+        in_url: true
+        broken: personal data in a request URL (query string)
+        fix: carry personal data only in request bodies over TLS
+        show: [source, pii_class, port]
+    observed:
+      - source: schema
+        schema_present: true
+        min: 1
+        what: API schemas read from the backend (/openapi.json)
+      - source: pii
+        min: 1
+        what: request/response bodies inspected on the wire (dx-ktls openssl mode → dx_kubelet_stream; Pixie http_events)
+        group_by: [source]
+
+  - id: ADR-0025
+    summary: No personal data in logs, metrics or URLs
+    title: Personal data never reaches stdout/stderr, metrics labels or request URLs
+    enforced_by: [logs, metrics-port, pixie.http_events]
+    violated:
+      - source: logs
+        clean: false
+        pii_class: canary
+        broken: the synthetic subject's data was written to the container log
+        fix: log identifiers, never payloads; redact at the logger
+        show: [container, count]
+      - source: logs
+        clean: false
+        pii_class: {not: [canary, ipv4]}
+        broken: personal data written to the container log
+        fix: log identifiers, never payloads; redact at the logger
+        show: [container, pii_class, count, declared]
+      - source: logs
+        clean: false
+        pii_class: ipv4
+        declared: false
+        broken: client IP addresses written to the log without ip in the declared categories
+        fix: anonymise the client address in the access log, or declare 'ip' with a purpose
+        show: [container, count]
+        counted: false
+        note: IP addresses in an access log are personal data; informational until the record declares them
+    observed:
+      - source: logs
+        min: 1
+        what: container logs of the window inspected
+        group_by: [clean]
+
+  - id: ADR-0026
+    summary: Data-subject rights — erasure works
+    title: A subject created through the API can be erased through the API, and is then gone; identifiers are not guessable
+    enforced_by: [evaluator.canary, openapi.schema]
+    violated:
+      - source: erasure
+        created: {lt: 300}
+        erasure_supported: false
+        broken: no DELETE for a created subject
+        fix: "DELETE /<collection>/{id} removes the record and everything derived from it"
+        show: [collection, id, delete_status]
+      - source: erasure
+        erasure_supported: true
+        gone: false
+        broken: the subject is still retrievable or listed after erasure
+        fix: erase, not flag; purge caches and derived copies
+        show: [collection, id, delete_status, listed_after]
+      - source: erasure
+        id: {regex: '^[0-9]{1,6}$'}
+        broken: sequential numeric identifiers make subjects enumerable
+        fix: use random identifiers (UUIDv4) for subject records
+        show: [collection, id]
+        counted: false
+        note: informational; counted once an access endpoint exists
+    observed:
+      - source: erasure
+        created: {lt: 300}
+        min: 1
+        what: synthetic subject created through the API (canary), erased, re-read
+        group_by: [gone]
+
+  - id: ADR-0027
+    summary: Personal data stays with declared peers
+    title: Personal data leaves the namespace only to the platform IdP, the data tier and declared processors; never to an external address
+    enforced_by: [netpol, sbob.egress, dx-ktls]
+    violated:
+      - source: pii
+        leaves_namespace: true
+        remote_ns: {not: [zitadel]}
+        pii_class: {not: [ipv4]}
+        broken: personal data sent to a peer outside the namespace that is not the platform IdP
+        fix: default-deny egress; declare the processor; never post personal data to an external service
+        show: [direction, pii_class, remote_kind, remote_ns, port]
+      - source: wire
+        egress_external: true
+        remote_kind: external
+        broken: egress to an external address
+        fix: default-deny egress with explicit allows
+        show: [proto, remote_ip, port, count]
+    observed:
+      - source: coverage
+        what: pods governed and past warm-up (egress rules active)
