@@ -36,6 +36,7 @@ if [ -f deploy-loadgen.yaml ]; then
   echo "load: application generator deploy-loadgen.yaml"
   kubectl create namespace "$LOADNS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl -n "$LOADNS" apply -f deploy-loadgen.yaml
+  kubectl -n "$LOADNS" rollout restart deploy >/dev/null 2>&1 || true     # a changed suite ConfigMap does not restart the generator by itself
   kubectl -n "$LOADNS" rollout status deploy --timeout=180s || true
   sleep "$SECONDS_"
 elif [ -f load/k6.js ]; then

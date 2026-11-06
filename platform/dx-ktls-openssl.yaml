@@ -15,7 +15,7 @@ spec:
       tolerations: [{operator: Exists}]
       containers:
       - name: dx-ktls
-        image: docker.io/tanzeee/dx-ktls:a57431f@sha256:523ca615ad3bc6e090ee4cc49f6f60e63945d0bd1be1be58ea1def791ad6d069
+        image: docker.io/tanzeee/dx-ktls:19e6ef3@sha256:21ae1a7db3acff6a81c8e0783e9ad968c89dc1d0d7921cba166f0fb222d27560   # redacts PII at ingest (<pii:class[:canary]> markers; DX_KTLS_REDACT=0 opts out)
         securityContext: {privileged: true}
         env:
         - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
