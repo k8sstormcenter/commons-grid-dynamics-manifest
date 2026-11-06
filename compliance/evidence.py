@@ -33,6 +33,57 @@ PLAINTEXT_PORTS = {80, 8000, 8080, 3000, 5432, 6379, 3306, 27017}
 HEALTH_PATHS = {"/health", "/healthz", "/readyz", "/livez", "/api/health"}
 HTTP_PORTS = (80, 8080, 3000, 8000, 5000, 9000, 443, 8443)
 SECRET_ENV = re.compile(r"(PASS|PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIAL|CLIENT_SECRET|DSN|CONNECTION_?STRING)", re.I)
+NOT_SECRET_ENV = re.compile(r"(_DIR|_PATH|_FILE|_URL|_URI|_ENDPOINT|_HOST|_PORT|_NAME|_MODE|_HEADER|_ISSUER|_AUDIENCE|_TTL|_TIMEOUT|_ENABLED|_COUNT|_LEN|_LENGTH)$", re.I)
+
+
+def looks_like_secret(name, value):
+    """An env var is a written-down credential when its NAME says so AND its VALUE can be one:
+    not a path, URL, flag, number or short word (IDP_SECRET_DIR=/etc/idp-client is a path)."""
+    if not name or not value or not SECRET_ENV.search(name) or NOT_SECRET_ENV.search(name):
+        return False
+    v = str(value).strip()
+    if v.startswith("/") or re.match(r"^[a-z][a-z0-9+.-]*://", v, re.I) or v.lower() in ("true", "false", "yes", "no", "none", "null"):
+        return False
+    return len(v) >= 8 and not re.fullmatch(r"[0-9]+", v)
+
+
+# ---- PII classes on the wire and in logs (the classes measured on the rig; JSON bodies are the safe shape)
+PII_CLASSES = {
+    "email": re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
+    "ipv4": re.compile(r"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\d.])"),
+    "ccn": re.compile(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)"),
+    "iban": re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){3,7}[ ]?[A-Z0-9]{1,4}\b"),
+    "ssn": re.compile(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)"),
+    "phone": re.compile(r"(?<![\w])\+\d{1,3}[ .-]?\(?\d{1,4}\)?(?:[ .-]?\d{2,4}){2,4}(?![\w])"),
+}
+PII_FIELD = re.compile(r"(e-?mail|phone|mobile|tel\b|first_?name|last_?name|full_?name|surname|\bname\b|address|street|zip|postcode|birth|dob|ssn|national_?id|passport|iban|card|customer|user_?name|ip_?addr)", re.I)
+PII_FIELD_CLASS = [("email", r"e-?mail"), ("phone", r"phone|mobile|tel\b"), ("name", r"name|surname"), ("address", r"address|street|zip|postcode"),
+                   ("birthdate", r"birth|dob"), ("government_id", r"ssn|national_?id|passport"), ("payment", r"iban|card"), ("ipv4", r"ip_?addr")]
+
+
+def luhn(digits):
+    d = [int(c) for c in digits if c.isdigit()]
+    if len(d) < 13:
+        return False
+    s = 0
+    for i, x in enumerate(reversed(d)):
+        if i % 2 == 1:
+            x *= 2
+            if x > 9: x -= 9
+        s += x
+    return s % 10 == 0
+
+
+def pii_classes(text):
+    """class -> count of distinct values found in text (ccn only when Luhn-valid)."""
+    out = {}
+    for k, rx in PII_CLASSES.items():
+        vals = set(m.group(0) for m in rx.finditer(text or ""))
+        if k == "ccn":
+            vals = {v for v in vals if luhn(v)}
+        if vals:
+            out[k] = len(vals)
+    return out
 DANGEROUS_CAPS = {"SYS_ADMIN", "SYS_MODULE", "NET_ADMIN", "SYS_PTRACE", "SYS_RAWIO", "BPF", "DAC_READ_SEARCH", "SYS_BOOT", "NET_RAW", "ALL"}
 METADATA_IP = "169.254.169.254"
 # Paths a rule watches (R0010 sensitive files, R0008 environ, R0006 the token): a profile wildcard
@@ -104,8 +155,10 @@ class Evidence:
         self.ns, self.since, self.until, self.scan_path, self.warmup_s = ns, since, until, scan, warmup_s
         self.markers = markers or CODE_MARKERS
         self.events = {k: [] for k in ("pod", "spec", "svc", "ingress", "netpol", "profile", "secret", "rbac",
-                                       "runtime", "wire", "scan", "scan_present", "probe", "content", "metrics")}
+                                       "runtime", "wire", "scan", "scan_present", "probe", "content", "metrics",
+                                       "attest", "declare", "schema", "pii", "logs", "erasure")}
         self.notes = []
+        self.canary = None
         self._cluster()
         self._exceptions()
         self._pods()
@@ -113,13 +166,20 @@ class Evidence:
         self._profiles()
         self._secrets()
         self._rbac()
-        self._runtime()
-        self._wire()
-        self._scan()
+        self._declare()
+        self._attest()
         if live:
             self._content()
+            self._schema()
             self._probes()
+            self._erasure()          # plants the canary subject, erases it; its traces are looked for below
             self._metrics()
+        self._runtime()
+        self._wire()
+        self._pii()
+        if live:
+            self._logs()
+        self._scan()
 
     @classmethod
     def static(cls, ns):
@@ -129,7 +189,9 @@ class Evidence:
         ev.ns, ev.since, ev.until, ev.scan_path, ev.warmup_s = ns, 0, int(datetime.datetime.now().timestamp()), None, 0
         ev.markers, ev.notes = CODE_MARKERS, []
         ev.events = {k: [] for k in ("pod", "spec", "svc", "ingress", "netpol", "profile", "secret", "rbac",
-                                     "runtime", "wire", "scan", "scan_present", "probe", "content", "metrics")}
+                                     "runtime", "wire", "scan", "scan_present", "probe", "content", "metrics",
+                                     "attest", "declare", "schema", "pii", "logs", "erasure")}
+        ev.canary = None
         ev._cluster(); ev._exceptions(); ev._pods(); ev._network_objects()
         return ev
 
@@ -281,7 +343,7 @@ class Evidence:
                                          if m.get("name") in vols and vols[m["name"]].get("hostPath")],
                     "runtime_socket": any(re.search(r"(docker|containerd|crio)\.sock", vols[m["name"]]["hostPath"]["path"]) for m in c.get("volumeMounts", []) or []
                                           if m.get("name") in vols and vols[m["name"]].get("hostPath")),
-                    "env_literal_secrets": [e["name"] for e in c.get("env", []) or [] if SECRET_ENV.search(e.get("name", "")) and "value" in e and e["value"]],
+                    "env_literal_secrets": [e["name"] for e in c.get("env", []) or [] if looks_like_secret(e.get("name", ""), e.get("value"))],
                     "env_secret_refs": sorted({(e.get("valueFrom") or {}).get("secretKeyRef", {}).get("name") for e in c.get("env", []) or []
                                                if (e.get("valueFrom") or {}).get("secretKeyRef")} |
                                               {(ef.get("secretRef") or {}).get("name") for ef in c.get("envFrom", []) or [] if ef.get("secretRef")}),
@@ -808,12 +870,305 @@ class Evidence:
                     self.events["probe"].append({**base, "reachable": True, "url": f"{scheme}://{ip}:{port}{path}", "path": path,
                                                  "auth": "valid", "status": st3, "via": via, "route": True})
 
+
+    # ---- supply chain: what the registry holds next to each image digest (SLSA provenance, SBOM, signature)
+    def _registry_token(self, reg, repo):
+        try:
+            if reg in ("docker.io", "index.docker.io"):
+                url = f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{repo}:pull"
+            else:
+                url = f"https://{reg}/token?scope=repository:{repo}:pull"
+            return json.loads(urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=10).read()).get("token")
+        except Exception:
+            return None
+
+    def _registry_get(self, reg, repo, path, token, accept):
+        host = "registry-1.docker.io" if reg in ("docker.io", "index.docker.io") else reg
+        req = urllib.request.Request(f"https://{host}/v2/{repo}/{path}", headers={"User-Agent": UA, "Accept": accept, **({"Authorization": f"Bearer {token}"} if token else {})})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, b""
+        except Exception:
+            return None, b""
+
+    def _attest(self):
+        seen = {}
+        for e in self.events["spec"]:
+            img = e["image"]
+            if "@sha256:" not in img:
+                self.events["attest"].append({"workload": e["workload"], "container": e["container"], "image": img, "digest": None, "pinned": False,
+                                              "provenance": False, "provenance_verified": False, "sbom": False, "signature": False, "builder": None,
+                                              "source_sha": None, "source_matches": False, "expected_sha": None})
+                continue
+            ref, digest = img.split("@", 1)
+            if digest in seen:
+                self.events["attest"].append({**seen[digest], "workload": e["workload"], "container": e["container"]})
+                continue
+            name = ref.split(":")[0] if ref.count(":") == (1 if "/" in ref and ":" in ref.split("/")[-1] else 0) else ref
+            name = re.sub(r":[^/]+$", "", ref)
+            reg, _, repo = name.partition("/") if "." in name.split("/")[0] or ":" in name.split("/")[0] else ("docker.io", "", ("library/" + name) if "/" not in name else name)
+            tag = ref.split("/")[-1].split(":", 1)[1] if ":" in ref.split("/")[-1] else None
+            expected_sha = tag if tag and re.fullmatch(r"[0-9a-f]{7,40}", tag) else None   # the image tag names the code commit
+            token = self._registry_token(reg, repo)
+            tagged = digest.replace(":", "-")
+            st_sig, _ = self._registry_get(reg, repo, f"manifests/{tagged}.sig", token, "application/vnd.oci.image.manifest.v1+json")
+            st_att, body_att = self._registry_get(reg, repo, f"manifests/{tagged}.att", token, "application/vnd.oci.image.manifest.v1+json")
+            st_sbom, _ = self._registry_get(reg, repo, f"manifests/{tagged}.sbom", token, "application/vnd.oci.image.manifest.v1+json")
+            st_ref, body_ref = self._registry_get(reg, repo, f"referrers/{digest}", token, "application/vnd.oci.image.index.v1+json")
+            referrers = []
+            if st_ref == 200:
+                try:
+                    referrers = [m.get("artifactType") or (m.get("annotations") or {}).get("dev.sigstore.bundle.predicateType") or m.get("mediaType") for m in json.loads(body_ref).get("manifests", [])]
+                except Exception:
+                    referrers = []
+            prov = st_att == 200 or any(r and ("slsa" in r.lower() or "provenance" in r.lower()) for r in referrers)
+            sbom = st_sbom == 200 or any(r and ("spdx" in r.lower() or "cyclonedx" in r.lower() or "sbom" in r.lower()) for r in referrers)
+            sig = st_sig == 200 or any(r and "sigstore.bundle" in r.lower() for r in referrers)
+            ev = {"image": img, "digest": digest, "pinned": True, "registry": reg, "repo": repo, "tag": tag, "expected_sha": expected_sha,
+                  "provenance": prov, "sbom": sbom, "signature": sig, "referrers": [r for r in referrers if r][:8],
+                  "provenance_verified": False, "builder": None, "source_sha": None, "source_repo": None, "source_matches": False, "verify_note": ""}
+            cosign = os.environ.get("ADR_COSIGN") or "cosign"
+            ident = os.environ.get("ADR_ATTEST_IDENTITY") or r"^https://github\.com/[^/]+/[^/]+/\.github/workflows/.+"
+            issuer = os.environ.get("ADR_ATTEST_ISSUER") or "https://token.actions.githubusercontent.com"
+            if prov:
+                for args in (["verify-attestation", "--type", "slsaprovenance1", "--new-bundle-format"], ["verify-attestation", "--type", "slsaprovenance1"],
+                             ["verify-attestation", "--type", "slsaprovenance"]):
+                    try:
+                        r = subprocess.run([cosign, *args, "--certificate-identity-regexp", ident, "--certificate-oidc-issuer", issuer, f"{name}@{digest}"],
+                                           capture_output=True, text=True, timeout=60)
+                    except Exception as ex:
+                        ev["verify_note"] = f"cosign unavailable: {ex}"; break
+                    if r.returncode != 0:
+                        ev["verify_note"] = (r.stderr or "").strip().splitlines()[-1][:200] if r.stderr else "verify failed"
+                        continue
+                    for line in r.stdout.splitlines():
+                        try:
+                            env = json.loads(line)
+                            pred = json.loads(base64.b64decode(env["payload"])) if "payload" in env else env
+                        except Exception:
+                            continue
+                        p = pred.get("predicate") or {}
+                        ev["provenance_verified"] = True
+                        ev["builder"] = ((p.get("runDetails") or {}).get("builder") or p.get("builder") or {}).get("id")
+                        deps = ((p.get("buildDefinition") or {}).get("resolvedDependencies") or []) + (p.get("materials") or [])
+                        for d in deps:
+                            uri = d.get("uri") or ""
+                            sha = (d.get("digest") or {}).get("gitCommit") or (d.get("digest") or {}).get("sha1")
+                            if "git" in uri and sha:
+                                ev["source_repo"], ev["source_sha"] = uri, sha
+                                break
+                    if ev["provenance_verified"]:
+                        break
+                ev["source_matches"] = bool(ev["source_sha"] and expected_sha and ev["source_sha"].startswith(expected_sha))
+            seen[digest] = ev
+            self.events["attest"].append({**ev, "workload": e["workload"], "container": e["container"]})
+
+    # ---- GDPR record of processing: what the namespace declares it processes
+    def _declare(self):
+        cm = kget(["-n", self.ns, "get", "configmap", os.environ.get("ADR_GDPR_CM", "gdpr-processing")], items=False)
+        d = (cm or {}).get("data") or {}
+        cats = [c.strip().lower() for c in re.split(r"[,\n]", d.get("categories", "")) if c.strip()]
+        try:
+            retention = int(d.get("retention_days", "") or 0)
+        except ValueError:
+            retention = 0
+        self.events["declare"].append({"name": "gdpr-processing", "present": bool(cm), "controller": d.get("controller"), "purpose": d.get("purpose"),
+                                       "lawful_basis": d.get("lawful_basis"), "categories": cats, "retention_days": retention,
+                                       "erasure_path": d.get("erasure_path"), "complete": bool(cm) and bool(d.get("purpose")) and bool(d.get("lawful_basis")) and retention > 0,
+                                       "processes_personal_data": bool(cats)})
+        self.declared = set(cats)
+
+    def _declared(self, cls):
+        d = getattr(self, "declared", set())
+        return cls in d or (cls in ("ipv4",) and "ip" in d) or (cls == "ccn" and "payment" in d) or (cls == "iban" and "payment" in d) or (cls == "ssn" and "government_id" in d)
+
+    # ---- the API schema the backend publishes: which personal-data fields it accepts
+    def _schema(self):
+        for p in self.pods:
+            meta = self.pod_meta[p["metadata"]["name"]]
+            if meta["tier"] not in ("backend", "middleware") or not meta["http_port"]:
+                continue
+            port = meta["http_port"]; scheme = self.scheme_of(p, port)
+            doc = None
+            for path in ("/openapi.json", "/api/openapi.json", "/swagger.json", "/api/swagger.json", "/openapi.yaml"):
+                st, _, _, body = http(f"{scheme}://{meta['ip']}:{port}{path}", timeout=8)
+                if st == 200 and body:
+                    try:
+                        doc = json.loads(body) if body.lstrip().startswith("{") else __import__("yaml").safe_load(body)
+                        self.schema_path = path; break
+                    except Exception:
+                        doc = None
+            base = {"pod": meta["pod"], "workload": meta["workload"], "tier": meta["tier"]}
+            if not isinstance(doc, dict):
+                self.events["schema"].append({**base, "schema_present": False, "field": None, "pii_class": None, "declared": None})
+                continue
+            fields = set()
+            def walk(o, trail=""):
+                if isinstance(o, dict):
+                    for k, v in (o.get("properties") or {}).items():
+                        fields.add(k); walk(v, trail + "." + k)
+                    for v in o.values():
+                        if isinstance(v, (dict, list)): walk(v, trail)
+                elif isinstance(o, list):
+                    for v in o: walk(v, trail)
+            walk(doc.get("components") or {}); walk(doc.get("paths") or {}); walk(doc.get("definitions") or {})
+            self.api_fields = sorted(fields)
+            self.events["schema"].append({**base, "schema_present": True, "field": None, "pii_class": None, "declared": None, "fields": len(fields),
+                                          "paths": sorted((doc.get("paths") or {}).keys())[:40]})
+            for f in sorted(fields):
+                if PII_FIELD.search(f):
+                    cls = next((c for c, rx in PII_FIELD_CLASS if re.search(rx, f, re.I)), "personal")
+                    self.events["schema"].append({**base, "schema_present": True, "field": f, "pii_class": cls, "declared": self._declared(cls)})
+
+    # ---- PII observed on the wire (TLS-tapped and plaintext bodies), per pod, direction and class
+    def _pii(self):
+        """Personal-data classes in request/response bodies. Bodies come from dx-ktls (forensic_db.dx_kubelet_stream,
+        source='openssl' — SSL_read/SSL_write uprobes on the pods' libssl, continuous for allow-listed namespaces) and
+        from Pixie http_events where the PEM parses the protocol. Pixie tls_events is a handshake table (no bodies)."""
+        if not CH:
+            return
+        s, u = self.since, self.until
+        cols = set()
+        try:
+            cols = {r["name"] for r in ch_rows("SELECT name FROM system.columns WHERE database='forensic_db' AND table='dx_kubelet_stream'")}
+        except Exception as e:
+            self.notes.append(f"dx_kubelet_stream columns unreadable: {e}")
+        role = "trace_role" if "trace_role" in cols else "if(direction='response','server','client')"   # column arrives with the openssl mode
+        win = f"time_ BETWEEN fromUnixTimestamp64Nano({s}000000000) AND fromUnixTimestamp64Nano({u}000000000)"
+        parts = []
+        if cols:
+            parts.append(f"""
+            SELECT 'dx-ktls' src, pod, {role} trace_role, remote_addr, toString(port) local_port, direction, req_path, payload, count() c
+            FROM forensic_db.dx_kubelet_stream WHERE namespace='{self.ns}' AND {win} AND source='openssl'
+              AND (channel = 'body' OR channel = '' OR channel IS NULL) AND payload_size > 0 GROUP BY ALL""")
+        parts.append(f"""
+            SELECT 'pixie' src, pod, if(trace_role=2,'server','client'), remote_addr, toString(local_port), 'request', req_path, concat(req_path, ' ', req_body), count()
+            FROM forensic_db.http_events WHERE namespace='{self.ns}' AND {win} AND (length(req_body) > 0 OR req_path LIKE '%=%') GROUP BY ALL
+            UNION ALL
+            SELECT 'pixie', pod, if(trace_role=2,'server','client'), remote_addr, toString(local_port), 'response', req_path, resp_body, count()
+            FROM forensic_db.http_events WHERE namespace='{self.ns}' AND {win} AND length(resp_body) > 0 GROUP BY ALL""")
+        try:
+            rows = ch_rows(" UNION ALL ".join(parts))
+        except Exception as e:
+            self.notes.append(f"PII wire evidence unavailable: {e}")
+            return
+        agg = {}
+        self.pii_rows = len(rows)
+        for r in rows:
+            pod = r["pod"].split("/")[-1]
+            meta = self.pod_meta.get(pod)
+            if not meta:
+                continue
+            kind, ppod, ptier, pns = self.peer(r["remote_addr"])
+            server = r["trace_role"] == "server"
+            direction = r["direction"] if r["direction"] in ("request", "response") else ("request" if server else "response")
+            text = r["payload"] or ""
+            found = pii_classes(text)
+            if self.canary and self.canary in text:
+                found["canary"] = 1
+            in_url = bool(pii_classes(r.get("req_path") or "")) if direction == "request" else False
+            for cls, n in found.items():
+                key = (pod, direction, cls, kind, pns, r["src"])
+                a = agg.setdefault(key, {"source": r["src"], "pod": pod, "workload": meta["workload"], "tier": meta["tier"], "direction": direction,
+                                         "role": "server" if server else "client", "remote_kind": kind, "remote_ns": pns, "port": r["local_port"],
+                                         "pii_class": cls, "declared": self._declared(cls), "count": 0, "values": 0, "in_url": in_url,
+                                         "leaves_namespace": ((not server) and kind != "pod") or (kind == "pod" and pns not in (None, "", self.ns)),
+                                         "egress_external": (not server) and kind == "external", "encrypted": True})
+                a["count"] += int(r["c"]); a["values"] += n; a["in_url"] = a["in_url"] or in_url
+        self.events["pii"] = list(agg.values())
+
+    # ---- container logs: personal data (and the canary) written to stdout/stderr
+    def _logs(self):
+        since = max(1, int(datetime.datetime.now().timestamp()) - self.since)
+        for p in self.pods:
+            meta = self.pod_meta[p["metadata"]["name"]]
+            for c in p["spec"]["containers"]:
+                r = subprocess.run(["kubectl", "-n", self.ns, "logs", p["metadata"]["name"], "-c", c["name"], f"--since={since}s", "--timestamps=false"],
+                                   capture_output=True, text=True)
+                text = r.stdout or ""
+                found = pii_classes(text)
+                found = {k: v for k, v in found.items() if not (k == "ipv4" and self.canary is None)}   # IPs in access logs are only a finding with a declaration
+                if self.canary and self.canary in text:
+                    found["canary"] = 1
+                base = {"pod": meta["pod"], "workload": meta["workload"], "tier": meta["tier"], "container": c["name"], "lines": text.count("\n")}
+                if not found:
+                    self.events["logs"].append({**base, "pii_class": None, "count": 0, "clean": True})
+                for cls, n in found.items():
+                    self.events["logs"].append({**base, "pii_class": cls, "count": n, "clean": False, "declared": self._declared(cls)})
+
+    # ---- right to erasure: create a synthetic data subject through the API, delete it, check it is gone
+    def _erasure(self):
+        decl = self.events["declare"][0] if self.events["declare"] else {}
+        token, _ = self.idp_token() if not hasattr(self, "_tok") else (self._tok, "")
+        self._tok = token
+        rand = base64.b32encode(os.urandom(5)).decode().lower().rstrip("=")
+        self.canary = f"adr-canary-{rand}"
+        canary_email = f"{self.canary}@example.invalid"
+        for p in self.pods:
+            meta = self.pod_meta[p["metadata"]["name"]]
+            if meta["tier"] not in ("backend", "middleware") or not meta["http_port"]:
+                continue
+            port = meta["http_port"]; scheme = self.scheme_of(p, port)
+            paths = getattr(self, "api_fields", None) and [e for e in self.events["schema"] if e.get("paths")] or []
+            api_paths = (paths[0]["paths"] if paths else []) or sorted({pp for c in self.events["content"] for pp in c.get("api_paths", [])})
+            # the collection to use: declared erasure_path (/api/things/{id}) -> /api/things ; else the first POST-able collection
+            coll = None
+            if decl.get("erasure_path"):
+                coll = re.sub(r"/\{[^}]+\}.*$", "", decl["erasure_path"])
+            else:
+                for pp in api_paths:
+                    if "{" not in pp and pp.count("/") >= 2 and not pp.endswith(("health", "metrics", "constants")):
+                        coll = pp; break
+            base = {"pod": meta["pod"], "workload": meta["workload"], "tier": meta["tier"], "canary": self.canary}
+            if not coll:
+                self.events["erasure"].append({**base, "collection": None, "created": None, "gone": None, "note": "no collection path to create a subject in"})
+                continue
+            hdr = {"Content-Type": "application/json", **({"Authorization": f"Bearer {token}"} if token else {})}
+            fields = {f for f in getattr(self, "api_fields", [])}
+            body = {"name": f"ADR Canary {rand}", "email": canary_email}
+            for f in fields:
+                if PII_FIELD.search(f) and f not in body:
+                    body[f] = canary_email if re.search(r"mail", f, re.I) else f"{self.canary}"
+            payload = json.dumps(body).encode()
+            req = urllib.request.Request(f"{scheme}://{meta['ip']}:{port}{coll}", data=payload, method="POST", headers={"User-Agent": UA, **hdr})
+            try:
+                with urllib.request.urlopen(req, timeout=10, context=_NOVERIFY if scheme == "https" else None) as r:
+                    st, resp = r.status, r.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as e:
+                st, resp = e.code, e.read().decode("utf-8", "replace")
+            except Exception as e:
+                st, resp = None, str(e)
+            ev = {**base, "collection": coll, "created": st, "id": None, "delete_status": None, "gone": None, "listed_after": None, "fields_sent": sorted(body)}
+            if st is None or st >= 300:
+                ev["note"] = f"create failed ({st}): {resp[:120]}"
+                self.events["erasure"].append(ev); continue
+            try:
+                j = json.loads(resp); sid = j.get("id") or (j.get("run") or {}).get("id") or (j.get("data") or {}).get("id")
+            except Exception:
+                sid = None
+            if sid is None:
+                ev["note"] = "created but no id in the response: cannot address the subject for erasure"
+                self.events["erasure"].append(ev); continue
+            ev["id"] = sid
+            item = f"{coll.rstrip('/')}/{sid}"
+            st_del, _, _, _ = http(f"{scheme}://{meta['ip']}:{port}{item}", method="DELETE", headers=hdr)
+            ev["delete_status"] = st_del
+            st_get, _, _, body_get = http(f"{scheme}://{meta['ip']}:{port}{item}", headers=hdr)
+            st_list, _, _, body_list = http(f"{scheme}://{meta['ip']}:{port}{coll}", headers=hdr)
+            ev["gone"] = st_get in (404, 410) and self.canary not in (body_list or "")
+            ev["listed_after"] = self.canary in (body_list or "")
+            ev["erasure_supported"] = st_del is not None and st_del < 300
+            self.events["erasure"].append(ev)
+
     # ---- summary for the report
     def source_summary(self):
         return {"clickhouse": urllib.parse.urlparse(CH).hostname if CH else None, "table": TABLE,
                 "window": {"from": self.since, "to": self.until, "seconds": self.until - self.since},
                 "rows": self.raw_rows, "rules_seen": getattr(self, "rules_seen", []),
                 "wire_rows": sum(e["count"] for e in self.events["wire"]),
+                "pii_rows": getattr(self, "pii_rows", 0), "canary": self.canary,
                 "test_cases": sorted({e["test_case"] for e in self.events["wire"] if e.get("test_case")}),
                 "component_load": [{k: e.get(k) for k in ("workload", "tier", "port", "status", "series", "requests", "commands", "commits") if e.get(k) is not None} for e in self.events["metrics"]],
                 "edges_seen": sorted({f"{e['src_tier']}->{e['dst_tier']}" for e in self.events["wire"] if e.get("src_tier") and e.get("dst_tier") and e["remote_kind"] in ("pod", "driver", "ingress")}),

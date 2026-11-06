@@ -53,6 +53,14 @@ Every ADR has the same sections: Decision · Why · How it is checked · What a 
 | [0017](0017-least-privilege-rbac.md) | Least-privilege RBAC | A workload's ServiceAccount holds only the permissions its code uses; nothing is bound to default | rbac-review, kyverno.validate |
 | [0018](0018-no-privilege-no-host-surface.md) | No privilege, no host surface | Workloads are unprivileged, touch no host path, load no kernel module and cannot reach the cloud metadata API | kyverno.validate, netpol, sbob.capabilities |
 | [0019](0019-exposure-through-the-platform-s-tailnet.md) | Exposure through the platform's tailnet | A workload is reachable only through the platform's tailnet exposure of its frontend Service; it opens nothing itself | tailscale-operator, kyverno.validate, netpol |
+| [0020](0020-slsa-provenance-from-the-platform-builder.md) | SLSA provenance from the platform builder | Every deployed image carries signed SLSA provenance from the platform's build workflow, and it names the code that was deployed | cosign.verify-attestation, kyverno.verifyImages |
+| [0021](0021-sbom-attached-no-known-critical-vulnerabilities.md) | SBOM attached, no known critical vulnerabilities | Every image publishes an SBOM next to its digest and carries no critical or exploitable known vulnerability | cosign.attach-sbom, kubescape.vulnerability-scan |
+| [0022](0022-no-code-enters-at-runtime.md) | No code enters at runtime | Nothing is downloaded, installed or compiled after the container starts; the image is the only source of code | sbob.exec, sbob.egress, netpol |
+| [0023](0023-record-of-processing-declared.md) | Record of processing declared | The namespace declares what personal data it processes, why, on which lawful basis, for how long, and how a subject is erased | kyverno.validate, gdpr-processing ConfigMap |
+| [0024](0024-data-minimisation-only-declared-personal-data.md) | Data minimisation — only declared personal data | The API accepts, and the wire carries, no category of personal data beyond those declared in the record of processing | openapi.schema, dx-ktls.openssl, pixie.http_events |
+| [0025](0025-no-personal-data-in-logs-metrics-or-urls.md) | No personal data in logs, metrics or URLs | Personal data never reaches stdout/stderr, metrics labels or request URLs | logs, metrics-port, pixie.http_events |
+| [0026](0026-data-subject-rights-erasure-works.md) | Data-subject rights — erasure works | A subject created through the API can be erased through the API, and is then gone; identifiers are not guessable | evaluator.canary, openapi.schema |
+| [0027](0027-personal-data-stays-with-declared-peers.md) | Personal data stays with declared peers | Personal data leaves the namespace only to the platform IdP, the data tier and declared processors; never to an external address | netpol, sbob.egress, dx-ktls |
 
 ## Prescribed edges
 
@@ -76,6 +84,7 @@ every tier -> DNS
 | kubelet_probe | kubelet probe from the node's address on a port this pod declares as a probe target; the tier profile does not list it (platform/bobctl) | counted=false, owner=platform |
 | evaluator / evaluator_wire | the evaluator's own request | counted=false, owner=application |
 | departed_peer | the peer is not a live pod and pods of this namespace departed in the window (rollout); cannot be attributed | NOT_OBSERVED (cannot be attributed) |
+| container_start | capability used by the container runtime (runc) while creating the container, not by the image's process | counted=false, owner=platform |
 | exec_started | process started by exec (kubelet exec probe or kubectl exec), not by the image; use tcpSocket/httpGet probes | counted=false, owner=application |
 | tracer_parent | parent is the Pixie tracer; not the application's behaviour | counted=false, owner=application |
 
