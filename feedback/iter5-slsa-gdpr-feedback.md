@@ -11,7 +11,7 @@ Load in the window: 2249 flows, all 7 use cases, bodies inspected: 10 395 (front
 
 COUNTED VIOLATIONS (observed → fix):
 ADR-0020 SLSA provenance from the platform builder — neither image has a provenance attestation, signature or SBOM next to its digest in ghcr → build and push with the platform build template (GitHub Actions: actions/attest-build-provenance + anchore/sbom-action + cosign attest); the image tag must be the commit the workflow built.
-ADR-0021 SBOM attached, no known critical vulnerabilities — backend image: 1 CRITICAL, 67 HIGH of which 13 are in packages loaded at runtime (python 3.12.16 base + deps) → rebuild on the current python:3.12-slim (or distroless) and refresh requirements; frontend image was private until now, its scan lands with the next rebuild.
+ADR-0021 SBOM attached, no known critical vulnerabilities — backend image: 1 CRITICAL, 67 HIGH of which 13 are in packages loaded at runtime (python 3.12.16 base + deps) → rebuild on the current python:3.12-slim (or distroless) and refresh requirements; frontend image (made public 06:40Z, scanned 06:39Z): 15 CRITICAL, 39 HIGH of which 1 loaded at runtime → rebuild on the current nginx:alpine.
 ADR-0023 Record of processing declared — no ConfigMap gdpr-processing → add to the manifest:
   apiVersion: v1 / kind: ConfigMap / metadata.name: gdpr-processing / data: {controller: "<team>", purpose: "<why the app stores runs/simulations>", lawful_basis: "<Art.6 basis>", categories: "none" (or e.g. "email,name" if you store any), retention_days: "30", erasure_path: "/api/runs/{id}"}
 ADR-0026 Data-subject rights — erasure works — a record created through POST /api/runs (201, id 123734) cannot be deleted: DELETE /api/runs/123734 → 501 Not Implemented → implement DELETE /api/runs/{id} and /api/simulations/{id} (204, then GET → 404 and absent from the list). Informational: ids are sequential (123734) → use UUIDs for records.
@@ -21,3 +21,5 @@ NOT OBSERVED: ADR-0024 (data minimisation) — bodies were inspected and carry n
 
 TARGET FOR ITERATION 6: gdpr-processing ConfigMap, /openapi.json, DELETE endpoints, rebuild through the platform build template (fixes 0020/0021 together).
 ```
+
+Addendum 06:50Z (sent to the coder): the frontend image scan landed after the image became public — ADR-0021 now counts both images: backend 1 CRITICAL / 13 relevant HIGH, frontend 15 CRITICAL / 1 relevant HIGH (nginx:alpine base). Fix for both: rebuild on current base images through the platform build template.

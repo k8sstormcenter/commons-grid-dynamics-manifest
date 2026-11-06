@@ -993,6 +993,9 @@ class Evidence:
         sboms = {o["metadata"]["name"] for o in kget(["-n", self.ns, "get", "sbomsyfts"])} if names else set()
         for e in self.events["spec"]:
             v = by_wl.get((e["workload"], e["container"]))
+            if not v and "@sha256:" in e["image"]:   # same image in another container of the workload (init container): match by image id
+                short = e["image"].split("@sha256:")[1][:3]
+                v = next((x for (wl, _c), x in by_wl.items() if wl == e["workload"] and (x.get("image_id") or "").endswith("-sha256-" + short)), None)
             if not v:
                 self.events["vulns"].append({"workload": e["workload"], "container": e["container"], "image": e["image"], "scanned": False,
                                              "critical": None, "high": None, "critical_relevant": None, "high_relevant": None, "sbom_in_cluster": False})
