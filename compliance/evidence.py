@@ -156,7 +156,7 @@ class Evidence:
         self.markers = markers or CODE_MARKERS
         self.events = {k: [] for k in ("pod", "spec", "svc", "ingress", "netpol", "profile", "secret", "rbac",
                                        "runtime", "wire", "scan", "scan_present", "probe", "content", "metrics",
-                                       "attest", "declare", "schema", "pii", "logs", "erasure")}
+                                       "attest", "declare", "schema", "pii", "logs", "erasure", "vulns")}
         self.notes = []
         self.canary = None
         self._cluster()
@@ -168,6 +168,7 @@ class Evidence:
         self._rbac()
         self._declare()
         self._attest()
+        self._vulns()
         if live:
             self._content()
             self._schema()
@@ -190,7 +191,7 @@ class Evidence:
         ev.markers, ev.notes = CODE_MARKERS, []
         ev.events = {k: [] for k in ("pod", "spec", "svc", "ingress", "netpol", "profile", "secret", "rbac",
                                      "runtime", "wire", "scan", "scan_present", "probe", "content", "metrics",
-                                     "attest", "declare", "schema", "pii", "logs", "erasure")}
+                                     "attest", "declare", "schema", "pii", "logs", "erasure", "vulns")}
         ev.canary = None
         ev._cluster(); ev._exceptions(); ev._pods(); ev._network_objects()
         return ev
@@ -964,6 +965,33 @@ class Evidence:
                 ev["source_matches"] = bool(ev["source_sha"] and expected_sha and ev["source_sha"].startswith(expected_sha))
             seen[digest] = ev
             self.events["attest"].append({**ev, "workload": e["workload"], "container": e["container"]})
+
+
+    # ---- in-cluster vulnerability scan (kubescape kubevuln): per deployed image digest, by severity; "relevant" = loaded at runtime
+    def _vulns(self):
+        names = [o["metadata"]["name"] for o in kget(["-n", self.ns, "get", "vulnerabilitymanifestsummaries"])]   # LIST nulls .spec: GET each
+        by_wl = {}
+        for n in names:
+            o = kget(["-n", self.ns, "get", "vulnerabilitymanifestsummaries", n], items=False) or {}
+            lb = o.get("metadata", {}).get("labels") or {}
+            an = o.get("metadata", {}).get("annotations") or {}
+            sev = (o.get("spec") or {}).get("severities") or {}
+            g = lambda k, w="all": int(((sev.get(k) or {}).get(w)) or 0)
+            by_wl[(lb.get("kubescape.io/workload-name"), lb.get("kubescape.io/workload-container-name"))] = {
+                "summary": n, "image_id": lb.get("kubescape.io/image-id"), "image_tag": an.get("kubescape.io/image-tag"),
+                "scan_status": an.get("kubescape.io/status"), "scanned_at": an.get("kubescape.io/timestamp"),
+                "critical": g("critical"), "high": g("high"), "medium": g("medium"), "low": g("low"),
+                "critical_relevant": g("critical", "relevant"), "high_relevant": g("high", "relevant"),
+                "relevancy": any("relevant" in (sev.get(k) or {}) for k in sev)}
+        sboms = {o["metadata"]["name"] for o in kget(["-n", self.ns, "get", "sbomsyfts"])} if names else set()
+        for e in self.events["spec"]:
+            v = by_wl.get((e["workload"], e["container"]))
+            if not v:
+                self.events["vulns"].append({"workload": e["workload"], "container": e["container"], "image": e["image"], "scanned": False,
+                                             "critical": None, "high": None, "critical_relevant": None, "high_relevant": None, "sbom_in_cluster": False})
+                continue
+            self.events["vulns"].append({"workload": e["workload"], "container": e["container"], "image": e["image"], "scanned": v["scan_status"] != "failed",
+                                         "sbom_in_cluster": bool(sboms), **v})
 
     # ---- GDPR record of processing: what the namespace declares it processes
     def _declare(self):

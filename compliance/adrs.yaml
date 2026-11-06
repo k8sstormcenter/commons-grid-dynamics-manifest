@@ -770,7 +770,7 @@ adrs:
   - id: ADR-0021
     summary: SBOM attached, no known critical vulnerabilities
     title: Every image publishes an SBOM next to its digest and carries no critical or exploitable known vulnerability
-    enforced_by: [cosign.attach-sbom, kubescape.vulnerability-scan]
+    enforced_by: [cosign.attach-sbom, kubescape.kubevuln]
     violated:
       - source: attest
         pinned: true
@@ -778,19 +778,44 @@ adrs:
         broken: no SBOM (SPDX/CycloneDX) attached to the image digest
         fix: the platform build template attaches the SBOM (syft + cosign attest --type cyclonedx)
         show: [container, image, referrers]
-      - source: scan
-        control: [C-0084, C-0085, C-0086]
-        broken: image carries known exploitable or excessive vulnerabilities
-        fix: rebuild on the current base image; pin dependencies; re-scan before pushing
-        show: [control, name]
+      - source: vulns
+        scanned: true
+        critical: {gt: 0}
+        broken: the image carries known CRITICAL vulnerabilities
+        fix: rebuild on a current base image and pinned dependencies; re-scan before pushing
+        show: [container, critical, critical_relevant, high, image_tag, scanned_at]
+      - source: vulns
+        scanned: true
+        high_relevant: {gt: 0}
+        broken: HIGH vulnerabilities in packages the container actually loads at runtime
+        fix: upgrade the affected packages; the relevancy list names them (vulnerabilitymanifests, relevant)
+        show: [container, high_relevant, high, image_tag]
+      - source: vulns
+        scanned: true
+        high: {gt: 0}
+        high_relevant: 0
+        broken: HIGH vulnerabilities in the image (not loaded at runtime so far)
+        fix: upgrade on the next rebuild
+        show: [container, high, image_tag]
+        counted: false
+        note: informational; counted when the vulnerable package is loaded (relevancy)
+      - source: vulns
+        scanned: false
+        broken: image not scanned in-cluster (no VulnerabilityManifestSummary)
+        fix: "platform: kubevuln must reach the registry; application: public or pull-secret-readable image"
+        show: [container, image]
+        counted: false
+        note: platform/registry access, informational
     observed:
       - source: attest
         min: 1
         what: image digests looked up for an SBOM
         group_by: [sbom]
-      - source: scan_present
-        present: true
-        what: kubescape scan supplied (vulnerability controls)
+      - source: vulns
+        scanned: true
+        min: 1
+        what: images scanned in-cluster by kubevuln (severities, relevancy)
+        group_by: [critical, high_relevant]
 
   - id: ADR-0022
     summary: No code enters at runtime
