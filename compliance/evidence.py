@@ -773,7 +773,7 @@ class Evidence:
             if not meta:
                 continue
             ip = r["remote_addr"]
-            if ip in ("127.0.0.1", "::1"):
+            if ip in ("127.0.0.1", "::1", "::", "0.0.0.0", ""):   # loopback and unspecified addresses (listen sockets) are not peers
                 continue
             kind, ppod, ptier, pns = self.peer(ip)
             if kind not in ("pod", "ingress"):   # a proxied request keeps the client's User-Agent; the hop is still pod->pod
