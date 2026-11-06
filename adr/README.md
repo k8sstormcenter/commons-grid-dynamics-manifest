@@ -61,6 +61,7 @@ Every ADR has the same sections: Decision · Why · How it is checked · What a 
 | [0025](0025-no-personal-data-in-logs-metrics-or-urls.md) | No personal data in logs, metrics or URLs | Personal data never reaches stdout/stderr, metrics labels or request URLs | logs, metrics-port, pixie.http_events |
 | [0026](0026-data-subject-rights-erasure-works.md) | Data-subject rights — erasure works | A subject created through the API can be erased through the API, and is then gone; identifiers are not guessable | evaluator.canary, openapi.schema |
 | [0027](0027-personal-data-stays-with-declared-peers.md) | Personal data stays with declared peers | Personal data leaves the namespace only to the platform IdP, the data tier and declared processors; never to an external address | netpol, sbob.egress, dx-ktls |
+| [0028](0028-pseudonymisation-at-rest.md) | Pseudonymisation at rest | Personal identifiers reach the data tier only as keyed hashes or tokens; never in clear in SQL or on the database hop | dx-ktls.openssl, pixie.pgsql_events, evaluator.canary |
 
 ## Prescribed edges
 

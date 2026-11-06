@@ -988,3 +988,30 @@ adrs:
     observed:
       - source: coverage
         what: pods governed and past warm-up (egress rules active)
+
+  - id: ADR-0028
+    summary: Pseudonymisation at rest
+    title: Personal identifiers reach the data tier only as keyed hashes or tokens; never in clear in SQL or on the database hop
+    enforced_by: [dx-ktls.openssl, pixie.pgsql_events, evaluator.canary]
+    violated:
+      - source: pii
+        db_hop: true
+        pii_class: canary
+        broken: the platform's canary subject reached the database hop in clear (not hashed/tokenised)
+        fix: HMAC-SHA256 (key from a platform Secret) or a token table before the INSERT; keep clear values only in the same request's response
+        show: [source, direction, remote_tier, port]
+      - source: pii
+        db_hop: true
+        pii_class: {not: [canary, ipv4]}
+        broken: a personal identifier was observed in clear on the database hop (SQL text or result rows)
+        fix: hash or tokenise identifiers before storage; never SELECT them back in clear
+        show: [source, direction, pii_class, values, remote_tier, port]
+    observed:
+      - source: coverage
+        tiers: [database]
+        what: data-tier pods governed and past warm-up
+      - source: pii
+        db_hop: true
+        min: 1
+        what: statements/rows on the database hop inspected (TLS tap or pgsql_events)
+        group_by: [source, pii_class]

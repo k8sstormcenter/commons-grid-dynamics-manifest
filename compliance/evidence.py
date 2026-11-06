@@ -30,6 +30,7 @@ RIG = os.environ.get("ADR_RIG", os.path.join(os.path.dirname(os.path.abspath(__f
 TRACER_PARENTS = {"pem"}                    # Pixie PEM: processes it spawns are not the application's
 MUTABLE_TAGS = {"latest", "main", "master", "dev", "stable", "edge", "nightly"}
 PLAINTEXT_PORTS = {80, 8000, 8080, 3000, 5432, 6379, 3306, 27017}
+DB_PORTS = {"5432", "6379", "3306", "27017", "9042", "5433"}
 HEALTH_PATHS = {"/health", "/healthz", "/readyz", "/livez", "/api/health"}
 HTTP_PORTS = (80, 8080, 3000, 8000, 5000, 9000, 443, 8443)
 SECRET_ENV = re.compile(r"(PASS|PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIAL|CLIENT_SECRET|DSN|CONNECTION_?STRING)", re.I)
@@ -1082,6 +1083,12 @@ class Evidence:
             FROM forensic_db.dx_kubelet_stream WHERE namespace='{self.ns}' AND {win} AND source='openssl'
               AND (channel = 'body' OR channel = '' OR channel IS NULL) AND payload_size > 0 GROUP BY ALL""")
         parts.append(f"""
+            SELECT 'pixie-pgsql' src, pod, if(trace_role=2,'server','client'), remote_addr, toString(local_port), 'request', '', req, count()
+            FROM forensic_db.pgsql_events WHERE namespace='{self.ns}' AND {win} AND length(req) > 0 GROUP BY ALL
+            UNION ALL
+            SELECT 'pixie-pgsql', pod, if(trace_role=2,'server','client'), remote_addr, toString(local_port), 'response', '', resp, count()
+            FROM forensic_db.pgsql_events WHERE namespace='{self.ns}' AND {win} AND length(resp) > 0 GROUP BY ALL
+            UNION ALL
             SELECT 'pixie' src, pod, if(trace_role=2,'server','client'), remote_addr, toString(local_port), 'request', req_path, concat(req_path, ' ', req_body), count()
             FROM forensic_db.http_events WHERE namespace='{self.ns}' AND {win} AND (length(req_body) > 0 OR req_path LIKE '%=%') GROUP BY ALL
             UNION ALL
@@ -1110,8 +1117,10 @@ class Evidence:
             in_url = bool(pii_classes(r.get("req_path") or "")) if direction == "request" else False
             for cls, n in found.items():
                 key = (pod, direction, cls, kind, pns, r["src"])
+                db_hop = meta["tier"] == "database" or ptier == "database" or str(r["local_port"]) in DB_PORTS or r.get("db_hop", False)
                 a = agg.setdefault(key, {"source": r["src"], "pod": pod, "workload": meta["workload"], "tier": meta["tier"], "direction": direction,
-                                         "role": "server" if server else "client", "remote_kind": kind, "remote_ns": pns, "port": r["local_port"],
+                                         "role": "server" if server else "client", "remote_kind": kind, "remote_ns": pns, "remote_tier": ptier,
+                                         "port": r["local_port"], "db_hop": db_hop,
                                          "pii_class": cls, "declared": self._declared(cls), "count": 0, "values": 0, "in_url": in_url,
                                          "leaves_namespace": ((not server) and kind != "pod") or (kind == "pod" and pns not in (None, "", self.ns)),
                                          "egress_external": (not server) and kind == "external", "encrypted": True})
