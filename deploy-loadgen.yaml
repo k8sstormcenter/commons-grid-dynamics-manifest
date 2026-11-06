@@ -149,7 +149,7 @@ spec:
         - name: k6
           image: grafana/k6@sha256:3e4186aea62e11a45560bfc51e19eeafe82fc07ce069c78aff44b7ff893d9a5e
           imagePullPolicy: IfNotPresent
-          args: ["run", "/scripts/k6.js"]
+          args: ["run", "--address", "0.0.0.0:6565", "/scripts/k6.js"]
           env:
             - name: BASE_URL
               value: "https://commons-grid-dynamics.commons-grid.svc"
