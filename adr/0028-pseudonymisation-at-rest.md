@@ -17,14 +17,15 @@ Pseudonymisation (Art. 4(5), 25, 32) is the one GDPR measure that is visible on 
 `COMPLIANT` needs every item below (see [README](README.md#how-to-read-an-adr) for how statuses are decided):
 
 * **coverage** — every pod of tier database carries a tier label, is bound to a profile that exists, is older than the warm-up (210 s), and the sensor reported at least one event for the namespace in the window.
-* **statements/rows on the database hop inspected (TLS tap or pgsql_events)** — at least 1: pii — db hop.
+* **statements/rows on the database hop inspected (TLS tap or pgsql_events)** — at least 1: pii — db hop, inspected > 0.
+* **the platform's canary subject was written through the API (so the hop carried an identifier to hash)** — at least 1: erasure — created < 300.
 
 ## What a violation looks like
 
 Each matching event is a finding with the observed event, the decision it broke and the fix; discounted events stay as notes (`counted=false`).
 
 * **the platform's canary subject reached the database hop in clear (not hashed/tokenised)** — pii — db hop, pii class canary.
-* **a personal identifier was observed in clear on the database hop (SQL text or result rows)** — pii — db hop, pii class not canary, ipv4.
+* **a personal identifier was observed in clear on the database hop (SQL text or result rows)** — pii — db hop, pii class not None, canary, ipv4.
 
 ## How to fix
 
@@ -45,6 +46,6 @@ Needs a data tier to exist and the TLS tap (dx-ktls OpenSSL mode) or Pixie pgsql
 | source | key | decision broken |
 |---|---|---|
 | pii | db hop, pii class canary | the platform's canary subject reached the database hop in clear (not hashed/tokenised) |
-| pii | db hop, pii class not canary, ipv4 | a personal identifier was observed in clear on the database hop (SQL text or result rows) |
+| pii | db hop, pii class not None, canary, ipv4 | a personal identifier was observed in clear on the database hop (SQL text or result rows) |
 
 *Generated from `compliance/adrs.yaml` and `compliance/adr_text.yaml` by `compliance/adr_docs.py`. Edit those, not this file.*
