@@ -354,3 +354,21 @@ ADR-0027:
   why: >-
     A third-party call is a processor contract and a transfer question. Egress is read from the
     sensor and the wire; bodies on cross-namespace hops are checked for personal data.
+
+ADR-0028:
+  status: proposed
+  applies_to: every workload that stores records about people; the backend→database hop
+  decision: >-
+    A personal identifier (e-mail, name, phone, address, government or payment id) reaches the data
+    tier only as a keyed hash (HMAC with a platform-held key) or a token; it is never written in
+    clear into SQL text, never returned in clear from the database, and the clear value lives only in
+    the request that carried it. Records are addressed by random identifiers.
+  why: >-
+    Pseudonymisation (Art. 4(5), 25, 32) is the one GDPR measure that is visible on the wire: the
+    platform decrypts the backend→database hop and inspects statements and result rows for
+    personal-data classes, and it plants its own canary subject through the API — if the canary
+    arrives at the database in clear, the application stores identifiers in clear. A breach of the
+    database then exposes hashes, not people.
+  notes: >-
+    Needs a data tier to exist and the TLS tap (dx-ktls OpenSSL mode) or Pixie pgsql_events on the
+    hop; without rows on the hop the ADR is NOT_OBSERVED, never COMPLIANT.

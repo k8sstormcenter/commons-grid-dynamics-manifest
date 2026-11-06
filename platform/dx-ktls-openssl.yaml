@@ -23,6 +23,7 @@ spec:
         - {name: DX_KTLS_NAMESPACES, value: commons-grid}
         - {name: DX_KTLS_BODIES, value: "1"}
         - {name: DX_KTLS_PAYLOAD_MAX, value: "16384"}
+        - {name: DX_KTLS_RESCAN, value: "2s"}       # forked postgres backends must be picked up before the connection ends (ADR-0028)
         - {name: DX_KTLS_EXCLUDE_UA, value: "vector,kubescape,node-agent,storage,synchronizer,operator,dx-daemon,adaptive-export,clickhouse,vizier,pixie"}
         - {name: DX_ORDERS_CH, valueFrom: {secretKeyRef: {name: dx-metastasis-ch, key: http-url}}}
         volumeMounts: [{name: sysfsbpf, mountPath: /sys/fs/bpf}]

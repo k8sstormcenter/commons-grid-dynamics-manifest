@@ -17,15 +17,15 @@ A generated application collects whatever the prompt mentioned. The OpenAPI sche
 `COMPLIANT` needs every item below (see [README](README.md#how-to-read-an-adr) for how statuses are decided):
 
 * **API schemas read from the backend (/openapi.json)** — at least 1: schema — schema present.
-* **request/response bodies inspected on the wire (dx-ktls openssl mode → dx_kubelet_stream; Pixie http_events)** — at least 1: pii.
+* **request/response bodies inspected on the wire (dx-ktls openssl mode → dx_kubelet_stream; Pixie http_events)** — at least 1: pii — inspected > 0.
 
 ## What a violation looks like
 
 Each matching event is a finding with the observed event, the decision it broke and the fix; discounted events stay as notes (`counted=false`).
 
 * **the API schema accepts a personal-data field of an undeclared category** — schema — field set, no declared.
-* **an undeclared class of personal data was observed in request or response bodies** — pii — pii class not canary, ipv4, no declared.
-* **personal data in a request URL (query string)** — pii — in url.
+* **an undeclared class of personal data was observed in request or response bodies** — pii — pii class not None, canary, ipv4, no declared.
+* **personal data in a request URL (query string)** — pii — pii class set, in url.
 
 ## How to fix
 
@@ -47,7 +47,7 @@ The wire part needs decrypted bodies (dx-ktls or Pixie TLS tracing). Without the
 | source | key | decision broken |
 |---|---|---|
 | schema | field set, no declared | the API schema accepts a personal-data field of an undeclared category |
-| pii | pii class not canary, ipv4, no declared | an undeclared class of personal data was observed in request or response bodies |
-| pii | in url | personal data in a request URL (query string) |
+| pii | pii class not None, canary, ipv4, no declared | an undeclared class of personal data was observed in request or response bodies |
+| pii | pii class set, in url | personal data in a request URL (query string) |
 
 *Generated from `compliance/adrs.yaml` and `compliance/adr_text.yaml` by `compliance/adr_docs.py`. Edit those, not this file.*

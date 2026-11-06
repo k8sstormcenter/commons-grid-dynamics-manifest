@@ -22,7 +22,7 @@ A third-party call is a processor contract and a transfer question. Egress is re
 
 Each matching event is a finding with the observed event, the decision it broke and the fix; discounted events stay as notes (`counted=false`).
 
-* **personal data sent to a peer outside the namespace that is not the platform IdP** — pii — leaves namespace, remote namespace not zitadel, pii class not ipv4.
+* **personal data sent to a peer outside the namespace that is not the platform IdP** — pii — leaves namespace, remote namespace not zitadel, pii class not None, ipv4.
 * **egress to an external address** — a captured flow — outbound to outside the cluster, remote external.
 
 ## How to fix
@@ -41,7 +41,7 @@ clickhouse-client -q "SELECT pod, remote_addr, local_port, encrypted, req_path, 
 
 | source | key | decision broken |
 |---|---|---|
-| pii | leaves namespace, remote namespace not zitadel, pii class not ipv4 | personal data sent to a peer outside the namespace that is not the platform IdP |
+| pii | leaves namespace, remote namespace not zitadel, pii class not None, ipv4 | personal data sent to a peer outside the namespace that is not the platform IdP |
 | wire | captured outbound to outside the cluster | egress to an external address |
 
 *Generated from `compliance/adrs.yaml` and `compliance/adr_text.yaml` by `compliance/adr_docs.py`. Edit those, not this file.*

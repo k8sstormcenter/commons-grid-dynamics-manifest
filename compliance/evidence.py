@@ -21,7 +21,7 @@ on them without Python. Sources:
 Discounts (kubelet probe, evaluator, prescribed edge, departed peer, exec-started, tracer) are
 declared in adrs.yaml and applied by the engine; this module only computes the facts they need.
 """
-import base64, collections, datetime, json, os, re, ssl, subprocess, urllib.error, urllib.parse, urllib.request
+import base64, collections, datetime, json, os, re, shlex, ssl, subprocess, urllib.error, urllib.parse, urllib.request
 
 CH = os.environ.get("ADR_CH", "")           # http://ingest_writer:changeme-ingest@<clickhouse>:8123
 TABLE = "forensic_db.kubescape_logs"
@@ -30,6 +30,7 @@ RIG = os.environ.get("ADR_RIG", os.path.join(os.path.dirname(os.path.abspath(__f
 TRACER_PARENTS = {"pem"}                    # Pixie PEM: processes it spawns are not the application's
 MUTABLE_TAGS = {"latest", "main", "master", "dev", "stable", "edge", "nightly"}
 PLAINTEXT_PORTS = {80, 8000, 8080, 3000, 5432, 6379, 3306, 27017}
+DB_PORTS = {"5432", "6379", "3306", "27017", "9042", "5433"}
 HEALTH_PATHS = {"/health", "/healthz", "/readyz", "/livez", "/api/health"}
 HTTP_PORTS = (80, 8080, 3000, 8000, 5000, 9000, 443, 8443)
 SECRET_ENV = re.compile(r"(PASS|PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIAL|CLIENT_SECRET|DSN|CONNECTION_?STRING)", re.I)
@@ -51,7 +52,7 @@ def looks_like_secret(name, value):
 PII_CLASSES = {
     "email": re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
     "ipv4": re.compile(r"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\d.])"),
-    "ccn": re.compile(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)"),
+    "ccn": re.compile(r"(?<![\d-])(?:\d{4}[ -]\d{4}[ -]\d{4}[ -]\d{1,7}|\d{4}[ -]\d{6}[ -]\d{5}|\d{13,19})(?![\d-])"),   # card-grouped, or bare with a card-ish field name (checked in pii_classes)
     "iban": re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){3,7}[ ]?[A-Z0-9]{1,4}\b"),
     "ssn": re.compile(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)"),
     "phone": re.compile(r"(?<![\w])\+\d{1,3}[ .-]?\(?\d{1,4}\)?(?:[ .-]?\d{2,4}){2,4}(?![\w])"),
@@ -74,13 +75,37 @@ def luhn(digits):
     return s % 10 == 0
 
 
+def redact(text):
+    """Replace every personal-data value by its class marker. Applied to the whole evaluation report before it leaves
+    the evaluator (KPI json, ClickHouse rows, MCP answers, feedback): findings carry classes and counts, never values."""
+    if not isinstance(text, str) or not text:
+        return text
+    out = text
+    for k, rx in PII_CLASSES.items():
+        if k == "ipv4":
+            out = rx.sub(lambda m: m.group(0) if re.match(r"^(10\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|255\.)", m.group(0)) else "<pii:ipv4>", out)
+        elif k == "ccn":
+            out = rx.sub(lambda m: "<pii:ccn>" if luhn(m.group(0)) else m.group(0), out)
+        else:
+            out = rx.sub(f"<pii:{k}>", out)
+    return out
+
+
+def redact_tree(obj):
+    if isinstance(obj, dict):
+        return {k: redact_tree(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [redact_tree(v) for v in obj]
+    return redact(obj)
+
+
 def pii_classes(text):
     """class -> count of distinct values found in text (ccn only when Luhn-valid; private/link-local IPs excluded)."""
     out = {}
     for k, rx in PII_CLASSES.items():
         vals = set(m.group(0) for m in rx.finditer(text or ""))
-        if k == "ccn":
-            vals = {v for v in vals if luhn(v)}
+        if k == "ccn":   # Luhn-valid AND card-shaped (grouped digits) or next to a card-ish field name: bare 13-19 digit numbers are ids/timestamps
+            vals = {v for v in vals if luhn(v) and (re.search(r"^\d{4}[ -]", v) or re.search(r"(card|ccn|pan|credit|cc_?num)[^0-9]{0,24}" + re.escape(v), text or "", re.I))}
         if k == "ipv4":
             vals = {v for v in vals if not re.match(r"^(10\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|255\.)", v)}
         if vals:
@@ -117,7 +142,16 @@ def ch(sql):
 
 
 def ch_rows(sql):
-    return [json.loads(l) for l in ch(sql + " FORMAT JSONEachRow").splitlines() if l.strip()]
+    out, bad = [], 0
+    for l in ch(sql + " FORMAT JSONEachRow").splitlines():
+        if not l.strip():
+            continue
+        try:
+            out.append(json.loads(l))
+        except ValueError:
+            bad += 1          # a row with bytes JSONEachRow could not carry (raw TLS payloads); the query sanitises, this is the last guard
+    ch_rows.unparsed = getattr(ch_rows, "unparsed", 0) + bad
+    return out
 
 
 def kget(args, items=True):
@@ -137,17 +171,55 @@ def ts(v):
     return datetime.datetime.fromisoformat(v).timestamp()
 
 
-def http(url, method="GET", headers=None, timeout=5):
-    """status, bytes, headers, body — never raises; status None = unreachable."""
-    req = urllib.request.Request(url, method=method, headers={"User-Agent": UA, **(headers or {})})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout, context=_NOVERIFY if url.startswith("https") else None) as r:
-            body = r.read()
-            return r.status, len(body), dict(r.headers), body.decode("utf-8", "replace")
-    except urllib.error.HTTPError as e:
-        return e.code, 0, dict(e.headers), ""
-    except Exception as e:
-        return None, 0, {"error": str(e)}, ""
+PROBE_PODS = [p.split("/") for p in os.environ.get("ADR_PROBE_PODS", "commons-grid-load/adr-probe,monitoring/adr-probe").split(",") if "/" in p]
+_PROBE_OK = {}
+_HOST_BLOCKED = {}
+
+
+def http_via(ns, pod, url, method="GET", headers=None, timeout=5, data=None):
+    """The same request from inside the cluster (curl in a probe pod): application NetworkPolicies admit named
+    namespaces (the load namespace, monitoring), not the evaluator's host."""
+    hdrs = " ".join(f"-H {shlex.quote(k + ': ' + v)}" for k, v in {"User-Agent": UA, **(headers or {})}.items())
+    d = f"--data-binary {shlex.quote(data.decode() if isinstance(data, bytes) else data)}" if data is not None else ""
+    timeout = max(timeout, 12)   # the application may be under load; a probe is not a latency measurement
+    cmd = f"curl -sk -m {timeout} -X {method} {hdrs} {d} -o /tmp/adr-body -w '%{{http_code}} %{{content_type}}' {shlex.quote(url)}; echo; head -c 262144 /tmp/adr-body"
+    r = subprocess.run(["kubectl", "-n", ns, "exec", pod, "--", "sh", "-c", cmd], capture_output=True, text=True, timeout=timeout + 15)
+    first, _, body = (r.stdout or "").partition("\n")
+    code, _, ctype = first.strip().partition(" ")
+    if not code.isdigit() or code == "000":
+        return None, 0, {"error": (r.stderr or first).strip()[:120]}, ""
+    return int(code), len(body), {"Content-Type": ctype, "via": f"{ns}/{pod}"}, body
+
+
+def http(url, method="GET", headers=None, timeout=5, data=None):
+    """status, bytes, headers, body — never raises; status None = unreachable. Direct from the host first; when the
+    target's NetworkPolicy does not admit the host, through the probe pods (ADR_PROBE_PODS)."""
+    host = urllib.parse.urlparse(url).netloc
+    last = (None, 0, {"error": "host not admitted (cached)"}, "")
+    if _HOST_BLOCKED.get(host, 0) < datetime.datetime.now().timestamp():   # a NetworkPolicy does not change within a run: remember a dead host:port for 2 min
+        req = urllib.request.Request(url, method=method, data=data, headers={"User-Agent": UA, **(headers or {})})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=_NOVERIFY if url.startswith("https") else None) as r:
+                body = r.read()
+                return r.status, len(body), dict(r.headers), body.decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            return e.code, 0, dict(e.headers), ""
+        except Exception as e:
+            last = (None, 0, {"error": str(e)}, "")
+            if "timed out" in str(e) or "No route" in str(e) or "Connection refused" in str(e):
+                _HOST_BLOCKED[host] = datetime.datetime.now().timestamp() + 120
+    order = sorted(PROBE_PODS, key=lambda p: 0 if _PROBE_OK.get((tuple(p), host)) else 1)
+    order = [tuple(p) for p in order]
+    for ns, pod in order:
+        try:
+            res = http_via(ns, pod, url, method, headers, timeout, data)
+        except Exception as e:
+            res = (None, 0, {"error": str(e)}, "")
+        if res[0] is not None:
+            _PROBE_OK[(ns, pod), host] = True     # remembered only as a preference; a failure is never cached (load, timeouts)
+            return res
+        last = res
+    return last
 
 
 # ---------------------------------------------------------------- the snapshot
@@ -211,6 +283,10 @@ class Evidence:
             self.node_ips |= {a.get("address") for a in n.get("status", {}).get("addresses", [])}
         self.node_ips -= {None}
         self.evaluator_ips = set(subprocess.run(["hostname", "-I"], capture_output=True, text=True).stdout.split())
+        for pns, ppod in PROBE_PODS:   # the evaluator's in-cluster probe pods are the evaluator too (their traffic is discounted)
+            o = kget(["-n", pns, "get", "pod", ppod], items=False) or {}
+            if (o.get("status") or {}).get("podIP"):
+                self.evaluator_ips.add(o["status"]["podIP"])
         # every pod in the cluster: peer resolution across namespaces (IdP, monitoring, ingress …)
         self.all_pods = {}
         for p in kget(["get", "pods", "-A"]):
@@ -245,6 +321,19 @@ class Evidence:
             return ("ingress" if m["ns"] in INGRESS_NAMESPACES else "pod"), m["pod"], f"ns:{m['ns']}", m["ns"]
         if self.in_pod_cidr(ip):
             return ("departed" if self.departed else "unknown"), None, None, None
+        if not hasattr(self, "svc_ips"):   # ClusterIPs: a Service is a cluster peer, kube-dns is dns, never "external"
+            self.svc_ips = {}
+            for s in kget(["get", "svc", "-A"]):
+                for cip in (s.get("spec", {}).get("clusterIPs") or [s.get("spec", {}).get("clusterIP")]):
+                    if cip and cip != "None":
+                        self.svc_ips[cip] = (s["metadata"]["namespace"], s["metadata"]["name"], [p.get("port") for p in s["spec"].get("ports", []) or []])
+        if ip in self.svc_ips:
+            sns, sname, sports = self.svc_ips[ip]
+            if sname in ("kube-dns", "coredns") or (port is not None and str(port) == "53"):
+                return "dns", sname, "dns", sns
+            if sns == self.ns:
+                return "service", sname, None, sns
+            return ("ingress" if sns in INGRESS_NAMESPACES else "service"), sname, f"ns:{sns}", sns
         return "external", None, None, None
 
     # ---- platform-granted exceptions
@@ -689,7 +778,7 @@ class Evidence:
                 "proto": r["proto"], "pod": pod, "workload": meta["workload"], "tier": meta["tier"], "role": "server" if server else "client",
                 "src_pod": src_pod, "src_tier": src_tier, "dst_pod": dst_pod, "dst_tier": dst_tier,
                 "remote_ip": ip, "remote_kind": kind, "remote_ns": pns, "port": int(r["local_port"]),
-                "encrypted": int(r["encrypted"]), "method": r["method"], "path": r["path"], "status": int(r["status"]), "count": int(r["c"]),
+                "encrypted": int(r["encrypted"]), "method": r["method"], "path": (r["path"] or "").split("?")[0], "status": int(r["status"]), "count": int(r["c"]),
                 "kubelet_probe": kind == "node" and server and str(r["local_port"]) in meta["probe_ports"],
                 "health_path": r["path"] in HEALTH_PATHS,
                 "via_ingress": kind == "ingress", "egress_external": (not server) and kind == "external",
@@ -926,13 +1015,24 @@ class Evidence:
             st_sbom, _ = self._registry_get(reg, repo, f"manifests/{tagged}.sbom", token, "application/vnd.oci.image.manifest.v1+json")
             st_ref, body_ref = self._registry_get(reg, repo, f"referrers/{digest}", token, "application/vnd.oci.image.index.v1+json")
             referrers = []
+            # docker buildx keeps provenance/SBOM as attestation manifests INSIDE the image index (official images do this)
+            st_idx, body_idx = self._registry_get(reg, repo, f"manifests/{digest}", token,
+                                                  "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json")
+            if st_idx == 200:
+                try:
+                    for m in json.loads(body_idx).get("manifests", []):
+                        an = m.get("annotations") or {}
+                        if an.get("vnd.docker.reference.type") == "attestation-manifest":
+                            referrers.append("docker-buildx:attestation-manifest")
+                except Exception:
+                    pass
             if st_ref == 200:
                 try:
                     referrers = [m.get("artifactType") or (m.get("annotations") or {}).get("dev.sigstore.bundle.predicateType") or m.get("mediaType") for m in json.loads(body_ref).get("manifests", [])]
                 except Exception:
                     referrers = []
-            prov = st_att == 200 or any(r and ("slsa" in r.lower() or "provenance" in r.lower()) for r in referrers)
-            sbom = st_sbom == 200 or any(r and ("spdx" in r.lower() or "cyclonedx" in r.lower() or "sbom" in r.lower()) for r in referrers)
+            prov = st_att == 200 or any(r and ("slsa" in r.lower() or "provenance" in r.lower() or "attestation-manifest" in r) for r in referrers)
+            sbom = st_sbom == 200 or any(r and ("spdx" in r.lower() or "cyclonedx" in r.lower() or "sbom" in r.lower() or "attestation-manifest" in r) for r in referrers)
             sig = st_sig == 200 or any(r and "sigstore.bundle" in r.lower() for r in referrers)
             ev = {"image": img, "digest": digest, "pinned": True, "registry": reg, "repo": repo, "tag": tag, "expected_sha": expected_sha,
                   "provenance": prov, "sbom": sbom, "signature": sig, "referrers": [r for r in referrers if r][:8],
@@ -1078,10 +1178,17 @@ class Evidence:
         parts = []
         if cols:
             parts.append(f"""
-            SELECT 'dx-ktls' src, pod, {role} trace_role, remote_addr, toString(port) local_port, direction, req_path, payload, count() c
+            SELECT 'dx-ktls' src, pod, {role} trace_role, remote_addr, toString(local_port) local_port, direction, req_path,
+                   toValidUTF8(replaceRegexpAll(payload, '[\\\\x00-\\\\x08\\\\x0B\\\\x0C\\\\x0E-\\\\x1F]', ' ')) payload, count() c
             FROM forensic_db.dx_kubelet_stream WHERE namespace='{self.ns}' AND {win} AND source='openssl'
               AND (channel = 'body' OR channel = '' OR channel IS NULL) AND payload_size > 0 GROUP BY ALL""")
         parts.append(f"""
+            SELECT 'pixie-pgsql' src, pod, if(trace_role=2,'server','client'), remote_addr, toString(local_port), 'request', '', req, count()
+            FROM forensic_db.pgsql_events WHERE namespace='{self.ns}' AND {win} AND length(req) > 0 GROUP BY ALL
+            UNION ALL
+            SELECT 'pixie-pgsql', pod, if(trace_role=2,'server','client'), remote_addr, toString(local_port), 'response', '', resp, count()
+            FROM forensic_db.pgsql_events WHERE namespace='{self.ns}' AND {win} AND length(resp) > 0 GROUP BY ALL
+            UNION ALL
             SELECT 'pixie' src, pod, if(trace_role=2,'server','client'), remote_addr, toString(local_port), 'request', req_path, concat(req_path, ' ', req_body), count()
             FROM forensic_db.http_events WHERE namespace='{self.ns}' AND {win} AND (length(req_body) > 0 OR req_path LIKE '%=%') GROUP BY ALL
             UNION ALL
@@ -1110,13 +1217,27 @@ class Evidence:
             in_url = bool(pii_classes(r.get("req_path") or "")) if direction == "request" else False
             for cls, n in found.items():
                 key = (pod, direction, cls, kind, pns, r["src"])
+                db_hop = meta["tier"] == "database" or ptier == "database" or str(r["local_port"]) in DB_PORTS or r.get("db_hop", False)
                 a = agg.setdefault(key, {"source": r["src"], "pod": pod, "workload": meta["workload"], "tier": meta["tier"], "direction": direction,
-                                         "role": "server" if server else "client", "remote_kind": kind, "remote_ns": pns, "port": r["local_port"],
+                                         "role": "server" if server else "client", "remote_kind": kind, "remote_ns": pns, "remote_tier": ptier,
+                                         "port": r["local_port"], "db_hop": db_hop,
                                          "pii_class": cls, "declared": self._declared(cls), "count": 0, "values": 0, "in_url": in_url,
                                          "leaves_namespace": ((not server) and kind != "pod") or (kind == "pod" and pns not in (None, "", self.ns)),
                                          "egress_external": (not server) and kind == "external", "encrypted": True})
                 a["count"] += int(r["c"]); a["values"] += n; a["in_url"] = a["in_url"] or in_url
-        self.events["pii"] = list(agg.values())
+        # one summary event per source and hop kind: how many bodies were inspected (clean bodies are evidence too)
+        insp = {}
+        for r in rows:
+            pod = r["pod"].split("/")[-1]
+            meta = self.pod_meta.get(pod)
+            if not meta:
+                continue
+            kind, ppod, ptier, pns = self.peer(r["remote_addr"])
+            db_hop = meta["tier"] == "database" or ptier == "database" or str(r["local_port"]) in DB_PORTS
+            k = (r["src"], db_hop)
+            insp[k] = insp.get(k, 0) + int(r["c"])
+        self.events["pii"] = list(agg.values()) + [{"source": s, "db_hop": db, "inspected": n, "pii_class": None, "declared": None,
+                                                     "leaves_namespace": False, "in_url": False, "count": 0, "values": 0} for (s, db), n in insp.items()]
 
 
     # ---- the OpenSSL tap (ecapture `tls` text mode on a pod's libssl): plaintext blocks from its log
@@ -1246,7 +1367,17 @@ class Evidence:
             meta = self.pod_meta[p["metadata"]["name"]]
             if meta["tier"] not in ("backend", "middleware") or not meta["http_port"]:
                 continue
-            port = meta["http_port"]; scheme = self.scheme_of(p, port)
+            # reach the backend the way a user does: through the frontend first (NetworkPolicies admit the load namespace there)
+            chosen = None
+            for vip, vport, vscheme, via in self.vantages(meta, p):
+                if http(f"{vscheme}://{vip}:{vport}/", timeout=12)[0] is not None:
+                    chosen = (vip, vport, vscheme); break
+            if not chosen:
+                self.events["erasure"].append({"pod": meta["pod"], "workload": meta["workload"], "tier": meta["tier"], "canary": self.canary,
+                                               "collection": None, "created": None, "gone": None, "note": "backend not reachable from any vantage (host, probe pods)"})
+                continue
+            ip_v, port, scheme = chosen
+            meta = {**meta, "ip": ip_v}
             paths = getattr(self, "api_fields", None) and [e for e in self.events["schema"] if e.get("paths")] or []
             api_paths = (paths[0]["paths"] if paths else []) or sorted({pp for c in self.events["content"] for pp in c.get("api_paths", [])})
             # the collection to use: declared erasure_path (/api/things/{id}) -> /api/things ; else the first POST-able collection
@@ -1267,6 +1398,16 @@ class Evidence:
             if not fields:
                 if not self.tap_posts:
                     self._tap_rows()
+                if not self.tap_posts and CH:   # a recent POST body on this collection from the TLS tap in ClickHouse
+                    try:
+                        for r in ch_rows(f"""SELECT payload FROM forensic_db.dx_kubelet_stream
+                                             WHERE namespace='{self.ns}' AND source='openssl' AND channel='body' AND payload LIKE '{{%'
+                                               AND session_id IN (SELECT session_id FROM forensic_db.dx_kubelet_stream WHERE namespace='{self.ns}' AND source='openssl'
+                                                                  AND direction='request' AND req_method='POST' AND req_path='{coll}' AND time_ > now()-INTERVAL 1 HOUR)
+                                               AND payload NOT LIKE '%adr-canary%' ORDER BY time_ DESC LIMIT 1"""):
+                            self.tap_posts[coll] = r["payload"]
+                    except Exception as e:
+                        self.notes.append(f"no POST template from the tap: {e}")
                 tmpl = self.tap_posts.get(coll) or self.tap_posts.get(coll.rstrip("/"))
                 if tmpl:
                     try:
@@ -1283,14 +1424,9 @@ class Evidence:
                 if PII_FIELD.search(f) and f not in body:
                     body[f] = canary_email if re.search(r"mail", f, re.I) else f"{self.canary}"
             payload = json.dumps(body).encode()
-            req = urllib.request.Request(f"{scheme}://{meta['ip']}:{port}{coll}", data=payload, method="POST", headers={"User-Agent": UA, **hdr})
-            try:
-                with urllib.request.urlopen(req, timeout=10, context=_NOVERIFY if scheme == "https" else None) as r:
-                    st, resp = r.status, r.read().decode("utf-8", "replace")
-            except urllib.error.HTTPError as e:
-                st, resp = e.code, e.read().decode("utf-8", "replace")
-            except Exception as e:
-                st, resp = None, str(e)
+            st, _, _, resp = http(f"{scheme}://{meta['ip']}:{port}{coll}", method="POST", headers=hdr, timeout=15, data=payload)
+            if st is not None and st >= 400 and not resp:
+                resp = ""
             ev = {**base, "collection": coll, "created": st, "id": None, "delete_status": None, "gone": None, "listed_after": None, "fields_sent": sorted(body)}
             if st is None or st >= 300:
                 ev["note"] = f"create failed ({st}): {resp[:120]}"

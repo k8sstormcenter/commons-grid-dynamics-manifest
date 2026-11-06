@@ -309,7 +309,7 @@ adrs:
         show: [url, status]
       - source: probe
         auth: valid
-        status: {not: [200, 201, 202, 204, 301, 302, 303, 307, 308, 404, 405]}
+        status: {not: [null, 200, 201, 202, 204, 301, 302, 303, 307, 308, 404, 405]}
         broken: backend rejects the platform IdP's token
         fix: accept the platform IdP's issuer and audience; fetch its JWKS from the OIDC discovery document
         show: [url, status]
@@ -884,12 +884,13 @@ adrs:
         fix: remove the field, or declare the category (and its purpose) in gdpr-processing
         show: [field, pii_class]
       - source: pii
-        pii_class: {not: [canary, ipv4]}
+        pii_class: {not: [null, canary, ipv4]}
         declared: false
         broken: an undeclared class of personal data was observed in request or response bodies
         fix: stop sending it, or declare the category and its purpose
         show: [source, direction, pii_class, values, remote_kind, remote_ns, port]
       - source: pii
+        pii_class: {empty: false}
         in_url: true
         broken: personal data in a request URL (query string)
         fix: carry personal data only in request bodies over TLS
@@ -900,9 +901,10 @@ adrs:
         min: 1
         what: API schemas read from the backend (/openapi.json)
       - source: pii
+        inspected: {gt: 0}
         min: 1
         what: request/response bodies inspected on the wire (dx-ktls openssl mode → dx_kubelet_stream; Pixie http_events)
-        group_by: [source]
+        group_by: [source, inspected]
 
   - id: ADR-0025
     summary: No personal data in logs, metrics or URLs
@@ -975,7 +977,7 @@ adrs:
       - source: pii
         leaves_namespace: true
         remote_ns: {not: [zitadel]}
-        pii_class: {not: [ipv4]}
+        pii_class: {not: [null, ipv4]}
         broken: personal data sent to a peer outside the namespace that is not the platform IdP
         fix: default-deny egress; declare the processor; never post personal data to an external service
         show: [direction, pii_class, remote_kind, remote_ns, port]
@@ -988,3 +990,35 @@ adrs:
     observed:
       - source: coverage
         what: pods governed and past warm-up (egress rules active)
+
+  - id: ADR-0028
+    summary: Pseudonymisation at rest
+    title: Personal identifiers reach the data tier only as keyed hashes or tokens; never in clear in SQL or on the database hop
+    enforced_by: [dx-ktls.openssl, pixie.pgsql_events, evaluator.canary]
+    violated:
+      - source: pii
+        db_hop: true
+        pii_class: canary
+        broken: the platform's canary subject reached the database hop in clear (not hashed/tokenised)
+        fix: HMAC-SHA256 (key from a platform Secret) or a token table before the INSERT; keep clear values only in the same request's response
+        show: [source, direction, remote_tier, port]
+      - source: pii
+        db_hop: true
+        pii_class: {not: [null, canary, ipv4]}
+        broken: a personal identifier was observed in clear on the database hop (SQL text or result rows)
+        fix: hash or tokenise identifiers before storage; never SELECT them back in clear
+        show: [source, direction, pii_class, values, remote_tier, port]
+    observed:
+      - source: coverage
+        tiers: [database]
+        what: data-tier pods governed and past warm-up
+      - source: pii
+        db_hop: true
+        inspected: {gt: 0}
+        min: 1
+        what: statements/rows on the database hop inspected (TLS tap or pgsql_events)
+        group_by: [source, inspected]
+      - source: erasure
+        created: {lt: 300}
+        min: 1
+        what: the platform's canary subject was written through the API (so the hop carried an identifier to hash)
