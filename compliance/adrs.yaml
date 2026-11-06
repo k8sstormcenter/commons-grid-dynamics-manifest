@@ -46,6 +46,10 @@ discounts:
     source: [wire]
     remote_kind: evaluator
     note: the evaluator's own request
+  - name: evaluator_pii
+    source: [pii]
+    remote_kind: evaluator
+    note: the evaluator's own canary request/response (its personal data is synthetic)
   - name: departed_peer
     source: [runtime, wire]
     peer_kind: departed

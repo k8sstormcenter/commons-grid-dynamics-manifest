@@ -99,9 +99,18 @@ def redact_tree(obj):
     return redact(obj)
 
 
+PII_MARKER = re.compile(r"<pii:(\w+)(:canary)?>")
+
+
 def pii_classes(text):
-    """class -> count of distinct values found in text (ccn only when Luhn-valid; private/link-local IPs excluded)."""
+    """class -> count of distinct values found in text (ccn only when Luhn-valid; private/link-local IPs excluded).
+    Rows redacted at ingest (dx-ktls) carry <pii:class> / <pii:class:canary> markers instead of values: those count as
+    the class (and as 'canary')."""
     out = {}
+    for m in PII_MARKER.finditer(text or ""):
+        out[m.group(1)] = out.get(m.group(1), 0) + 1
+        if m.group(2):
+            out["canary"] = out.get("canary", 0) + 1
     for k, rx in PII_CLASSES.items():
         vals = set(m.group(0) for m in rx.finditer(text or ""))
         if k == "ccn":   # Luhn-valid AND card-shaped (grouped digits) or next to a card-ish field name: bare 13-19 digit numbers are ids/timestamps
@@ -1128,10 +1137,15 @@ class Evidence:
             meta = self.pod_meta[p["metadata"]["name"]]
             if meta["tier"] not in ("backend", "middleware") or not meta["http_port"]:
                 continue
-            port = meta["http_port"]; scheme = self.scheme_of(p, port)
             doc = None
-            for path in ("/openapi.json", "/api/openapi.json", "/swagger.json", "/api/swagger.json", "/openapi.yaml"):
-                st, _, _, body = http(f"{scheme}://{meta['ip']}:{port}{path}", timeout=8)
+            if not hasattr(self, "_tok"):
+                self._tok, note = self.idp_token(); self.notes.append(note)
+            auth = {"Authorization": f"Bearer {self._tok}"} if self._tok else {}   # the schema may sit behind the platform IdP: that is fine
+            targets = [(vip, vport, vscheme) for vip, vport, vscheme, _ in self.vantages(meta, p)]   # frontend first, then the pod
+            for (vip, vport, vscheme), path in [(t, pth) for t in targets for pth in ("/openapi.json", "/api/openapi.json", "/swagger.json", "/api/swagger.json", "/openapi.yaml")]:
+                if doc is not None:
+                    break
+                st, _, _, body = http(f"{vscheme}://{vip}:{vport}{path}", headers=auth, timeout=8)
                 if st == 200 and body:
                     try:
                         doc = json.loads(body) if body.lstrip().startswith("{") else __import__("yaml").safe_load(body)
@@ -1222,7 +1236,9 @@ class Evidence:
                                          "role": "server" if server else "client", "remote_kind": kind, "remote_ns": pns, "remote_tier": ptier,
                                          "port": r["local_port"], "db_hop": db_hop,
                                          "pii_class": cls, "declared": self._declared(cls), "count": 0, "values": 0, "in_url": in_url,
-                                         "leaves_namespace": ((not server) and kind != "pod") or (kind == "pod" and pns not in (None, "", self.ns)),
+                                         # data LEAVES the namespace only when it flows out: our request to a foreign peer, or our response to one
+                                         "leaves_namespace": bool(kind) and kind not in ("evaluator", "node") and (pns not in (None, "", self.ns) or kind == "external")
+                                                             and ((server and direction == "response") or ((not server) and direction == "request")),
                                          "egress_external": (not server) and kind == "external", "encrypted": True})
                 a["count"] += int(r["c"]); a["values"] += n; a["in_url"] = a["in_url"] or in_url
         # one summary event per source and hop kind: how many bodies were inspected (clean bodies are evidence too)
@@ -1395,17 +1411,21 @@ class Evidence:
             hdr = {"Content-Type": "application/json", **({"Authorization": f"Bearer {token}"} if token else {})}
             fields = {f for f in getattr(self, "api_fields", [])}
             body = {"name": f"ADR Canary {rand}", "email": canary_email}
-            if not fields:
+            if True:   # an observed request body is the best template of what the API accepts; the schema only adds field names
                 if not self.tap_posts:
                     self._tap_rows()
                 if not self.tap_posts and CH:   # a recent POST body on this collection from the TLS tap in ClickHouse
                     try:
                         for r in ch_rows(f"""SELECT payload FROM forensic_db.dx_kubelet_stream
                                              WHERE namespace='{self.ns}' AND source='openssl' AND channel='body' AND payload LIKE '{{%'
-                                               AND session_id IN (SELECT session_id FROM forensic_db.dx_kubelet_stream WHERE namespace='{self.ns}' AND source='openssl'
-                                                                  AND direction='request' AND req_method='POST' AND req_path='{coll}' AND time_ > now()-INTERVAL 1 HOUR)
-                                               AND payload NOT LIKE '%adr-canary%' ORDER BY time_ DESC LIMIT 1"""):
-                            self.tap_posts[coll] = r["payload"]
+                                               AND (session_id, seq) IN (SELECT session_id, seq + 1 FROM forensic_db.dx_kubelet_stream WHERE namespace='{self.ns}' AND source='openssl'
+                                                                         AND direction='request' AND req_method='POST' AND req_path='{coll}' AND time_ > now()-INTERVAL 1 HOUR)
+                                               AND payload NOT LIKE '%adr-canary%' AND payload NOT LIKE '%"error"%' ORDER BY time_ DESC LIMIT 8"""):
+                            try:
+                                if isinstance(json.loads(r["payload"]), dict):   # a complete body (bodies longer than the capture cap are truncated)
+                                    self.tap_posts[coll] = r["payload"]; break
+                            except ValueError:
+                                continue
                     except Exception as e:
                         self.notes.append(f"no POST template from the tap: {e}")
                 tmpl = self.tap_posts.get(coll) or self.tap_posts.get(coll.rstrip("/"))
@@ -1413,15 +1433,22 @@ class Evidence:
                     try:
                         t = json.loads(tmpl)
                         if isinstance(t, dict):
-                            for k, v in t.items():          # keep the shape the application accepts; mark it with the canary
-                                if isinstance(v, str):
-                                    t[k] = f"{self.canary}" if k != "email" else canary_email
-                            t.setdefault("name", f"ADR Canary {rand}"); t["email"] = canary_email
+                            # keep exactly the shape the application accepts (unknown keys get a 400); plant the canary in its
+                            # personal-data fields (e-mail fields get the canary e-mail, other string fields the canary string)
+                            planted = False
+                            for k, v in t.items():
+                                if isinstance(v, str) and PII_FIELD.search(k):
+                                    t[k] = canary_email if re.search(r"mail", k, re.I) else f"ADR Canary {rand}"
+                                    planted = True
+                            if not planted:
+                                for k, v in t.items():
+                                    if isinstance(v, str):
+                                        t[k] = f"{self.canary}"; planted = True; break
                             body = t
                     except Exception:
                         pass
-            for f in fields:
-                if PII_FIELD.search(f) and f not in body:
+            for f in fields:   # schema-known personal-data fields (no template case)
+                if PII_FIELD.search(f) and f not in body and body.get("email") == canary_email:
                     body[f] = canary_email if re.search(r"mail", f, re.I) else f"{self.canary}"
             payload = json.dumps(body).encode()
             st, _, _, resp = http(f"{scheme}://{meta['ip']}:{port}{coll}", method="POST", headers=hdr, timeout=15, data=payload)
@@ -1446,7 +1473,9 @@ class Evidence:
             st_list, _, _, body_list = http(f"{scheme}://{meta['ip']}:{port}{coll}", headers=hdr)
             ev["gone"] = st_get in (404, 410) and self.canary not in (body_list or "")
             ev["listed_after"] = self.canary in (body_list or "")
-            ev["erasure_supported"] = st_del is not None and st_del < 300
+            ev["erasure_supported"] = (st_del < 300) if st_del is not None else None   # None = the DELETE did not get an answer (not a verdict)
+            if st_del is None:
+                ev["note"] = "DELETE got no answer (timeout/unreachable); erasure not judged"
             self.events["erasure"].append(ev)
 
     # ---- summary for the report
