@@ -108,7 +108,16 @@ def pii_classes(text):
     the class (and as 'canary')."""
     out = {}
     for m in PII_MARKER.finditer(text or ""):
-        out[m.group(1)] = out.get(m.group(1), 0) + 1
+        cls = m.group(1)
+        # dx-ktls redacts at ingest; its ccn matcher also fires on hex resource identifiers (UUIDs). A credit-card
+        # number is digits only, so a ccn marker whose hyphen-adjacent neighbour is a hex group containing a-f is a
+        # UUID fragment, not a card: discount it. Same intent as the Luhn/card-shape rule below, applied to the marker
+        # context the raw value no longer survives to be tested against.
+        if cls == "ccn":
+            left, right = (text or "")[max(0, m.start() - 18):m.start()], (text or "")[m.end():m.end() + 18]
+            if re.match(r"-[0-9a-f]*[a-f][0-9a-f]*", right, re.I) or re.search(r"[0-9a-f]*[a-f][0-9a-f]*-$", left, re.I):
+                continue
+        out[cls] = out.get(cls, 0) + 1
         if m.group(2):
             out["canary"] = out.get("canary", 0) + 1
     for k, rx in PII_CLASSES.items():
