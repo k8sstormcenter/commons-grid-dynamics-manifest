@@ -1,8 +1,22 @@
-# Commons Grid Dynamics - iteration 6: PostgreSQL store (TLS, pooled), DELETE, OpenAPI.
+# Commons Grid Dynamics - iteration 6: PostgreSQL store, owner keyed hashes, GDPR record, DELETE, OpenAPI.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: commons-grid
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gdpr-processing
+  namespace: commons-grid
+data:
+  controller: croedig
+  purpose: attribute saved runs and simulations to their owner
+  lawful_basis: 'Art. 6(1)(b) GDPR: authentication of the account holder (username,
+    password, e-mail); the app itself stores only a keyed hash'
+  categories: email,name
+  retention_days: '30'
+  erasure_path: /api/runs/{id}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -59,7 +73,7 @@ spec:
         fsGroup: 101
       initContainers:
       - name: site-config
-        image: ghcr.io/k8sstormcenter/commons-grid-dynamics:703d0bccdd6fd521aacf1ee1112675c920a63af6@sha256:4f216bb2e80da569cd48a8f0ddd79e35181eedb4020708bbab44f07854ba8fcb
+        image: ghcr.io/k8sstormcenter/commons-grid-dynamics:d621b846d62f47527a890f50accb9c5e6750ed66@sha256:61a0a63cb058bbae6690ebcbed63a67aeb5cc38bcba362361a2e895a369ddcd0
         imagePullPolicy: IfNotPresent
         command:
         - sh
@@ -97,7 +111,7 @@ spec:
           readOnly: true
       containers:
       - name: web
-        image: ghcr.io/k8sstormcenter/commons-grid-dynamics:703d0bccdd6fd521aacf1ee1112675c920a63af6@sha256:4f216bb2e80da569cd48a8f0ddd79e35181eedb4020708bbab44f07854ba8fcb
+        image: ghcr.io/k8sstormcenter/commons-grid-dynamics:d621b846d62f47527a890f50accb9c5e6750ed66@sha256:61a0a63cb058bbae6690ebcbed63a67aeb5cc38bcba362361a2e895a369ddcd0
         imagePullPolicy: IfNotPresent
         ports:
         - name: https
@@ -210,7 +224,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: api
-        image: ghcr.io/k8sstormcenter/commons-grid-dynamics-backend:703d0bccdd6fd521aacf1ee1112675c920a63af6@sha256:40b1871089855c7e7a91e76a803f65f43c83661ba9bc02fa2caa520a5cbb9dd8
+        image: ghcr.io/k8sstormcenter/commons-grid-dynamics-backend:d621b846d62f47527a890f50accb9c5e6750ed66@sha256:8bfa200532a3c64bd2716c27ee444eb6114af8392914294f22290de198ef5a6e
         imagePullPolicy: IfNotPresent
         env:
         - name: DATABASE_URL
@@ -228,6 +242,8 @@ spec:
           value: '398230519810097786'
         - name: DB_POOL_MIN
           value: '2'
+        - name: PII_KEY_FILE
+          value: /etc/pii/key
         ports:
         - name: https
           containerPort: 8443
@@ -274,6 +290,9 @@ spec:
           readOnly: true
         - name: tmp
           mountPath: /tmp
+        - name: pii
+          mountPath: /etc/pii
+          readOnly: true
       volumes:
       - name: idp-client
         secret:
@@ -288,6 +307,13 @@ spec:
           defaultMode: 288
       - name: tmp
         emptyDir: {}
+      - name: pii
+        secret:
+          secretName: pii-hmac
+          defaultMode: 288
+          items:
+          - key: key
+            path: key
       securityContext:
         fsGroup: 10001
 ---

@@ -86,9 +86,14 @@ export function frontend() {
   check(r, { 'frontend page 200': (x) => x.status === 200 });
 }
 
+// Synthetic owner per virtual user (never a real person).
+function owner() {
+  return { owner_name: 'k6 user ' + __VU, owner_email: 'k6-' + __VU + '@example.invalid' };
+}
+
 export function runs(data) {
-  const body = JSON.stringify({ name: 'k6 run', params: { N: 10, M: 5, P: 2, hpc: 20 } });
-  const created = api('POST', '/api/runs', body, 'save-run', data);
+  const body = JSON.stringify(Object.assign({ name: 'k6 run', params: { N: 10, M: 5, P: 2, hpc: 20 } }, owner()));
+  const created = api('POST', '/api/runs', body, 'save-run-with-owner', data);
   check(created, { 'run saved': (x) => x.status === 201 });
 
   const list = api('GET', '/api/runs', null, 'list-runs', data);
@@ -100,7 +105,7 @@ export function runs(data) {
 }
 
 export function simulations(data) {
-  const body = JSON.stringify({ name: 'k6 simulation', body: { params: { N: 10, M: 5, P: 2, hpc: 20 } } });
+  const body = JSON.stringify(Object.assign({ name: 'k6 simulation', body: { params: { N: 10, M: 5, P: 2, hpc: 20 } } }, owner()));
   const created = api('POST', '/api/simulations', body, 'save-simulation', data);
   check(created, { 'simulation saved': (x) => x.status === 201 });
 
