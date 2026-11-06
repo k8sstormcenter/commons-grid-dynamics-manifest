@@ -1,0 +1,780 @@
+# Commons Grid Dynamics - iteration 10: database Recreate strategy (one instance on the data volume), pinned backend deps.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: commons-grid
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gdpr-processing
+  namespace: commons-grid
+data:
+  controller: croedig
+  purpose: attribute saved runs and simulations to their owner
+  lawful_basis: 'Art. 6(1)(b) GDPR: authentication of the account holder (username,
+    password, e-mail); the app itself stores only a keyed hash'
+  categories: email,name
+  retention_days: '30'
+  erasure_path: /api/runs/{id}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: commons-grid-tls
+  namespace: commons-grid
+spec:
+  secretName: commons-grid-tls
+  dnsNames:
+  - commons-grid-dynamics.commons-grid.svc
+  - commons-grid-dynamics
+  - commons-grid
+  issuerRef:
+    name: platform-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: commons-grid-backend-tls
+  namespace: commons-grid
+spec:
+  secretName: commons-grid-backend-tls
+  dnsNames:
+  - commons-grid-backend
+  - commons-grid-backend.commons-grid.svc
+  issuerRef:
+    name: platform-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commons-grid-dynamics
+  namespace: commons-grid
+  labels:
+    app: commons-grid-dynamics
+    app.kubernetes.io/tier: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commons-grid-dynamics
+  template:
+    metadata:
+      labels:
+        app: commons-grid-dynamics
+        app.kubernetes.io/tier: frontend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 101
+      initContainers:
+      - name: site-config
+        image: ghcr.io/k8sstormcenter/commons-grid-dynamics:e0e0b0e76031252405180f4e069b36f8962660b0@sha256:de67648ed8b82d4aa63f106af6111ae007e1b2f1c198e055eb3b77ba5bce94bd
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        args:
+        - 'cp /usr/share/nginx/html/index.html /site/index.html && printf ''{"issuer":"%s","authorizationEndpoint":"%s","tokenEndpoint":"%s","clientId":"%s","projectId":"%s"}''
+          "http://localhost:8080" "http://localhost:8080/oauth/v2/authorize" "$(cat
+          /etc/idp-client/token_endpoint)" "$(cat /etc/idp-client/client_id)" "$(cat
+          /etc/idp-client/project_id)" > /site/config.json
+
+          '
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+          runAsUser: 101
+          runAsGroup: 101
+        volumeMounts:
+        - name: site
+          mountPath: /site
+        - name: idp-client
+          mountPath: /etc/idp-client
+          readOnly: true
+      containers:
+      - name: web
+        image: ghcr.io/k8sstormcenter/commons-grid-dynamics:e0e0b0e76031252405180f4e069b36f8962660b0@sha256:de67648ed8b82d4aa63f106af6111ae007e1b2f1c198e055eb3b77ba5bce94bd
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: https
+          containerPort: 8443
+        - name: metrics
+          containerPort: 9113
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+          runAsUser: 101
+          runAsGroup: 101
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        volumeMounts:
+        - name: site
+          mountPath: /usr/share/nginx/html
+          readOnly: true
+        - name: tls
+          mountPath: /etc/tls
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /var/cache/nginx
+      volumes:
+      - name: site
+        emptyDir: {}
+      - name: tls
+        secret:
+          secretName: commons-grid-tls
+          defaultMode: 288
+      - name: idp-client
+        secret:
+          secretName: idp-client
+          defaultMode: 288
+          items:
+          - key: client_id
+            path: client_id
+          - key: token_endpoint
+            path: token_endpoint
+          - key: project_id
+            path: project_id
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commons-grid-dynamics
+  namespace: commons-grid
+  annotations:
+    tailscale.com/expose: 'true'
+    tailscale.com/hostname: commons-grid
+    tailscale.com/tags: tag:edge4
+spec:
+  type: ClusterIP
+  selector:
+    app: commons-grid-dynamics
+  ports:
+  - name: https
+    port: 443
+    targetPort: 8443
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commons-grid-backend
+  namespace: commons-grid
+  labels:
+    app: commons-grid-backend
+    app.kubernetes.io/tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commons-grid-backend
+  template:
+    metadata:
+      labels:
+        app: commons-grid-backend
+        app.kubernetes.io/tier: backend
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: api
+        image: ghcr.io/k8sstormcenter/commons-grid-dynamics-backend:e0e0b0e76031252405180f4e069b36f8962660b0@sha256:555c02c3628aabed5c009289f63e8f7472104bbe8e168f05645623ae242a88ba
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: DATABASE_URL
+          value: host=commons-grid-db.commons-grid.svc port=5432 dbname=postgres user=postgres
+            sslmode=verify-full sslrootcert=/etc/tls/ca.crt
+        - name: IDP_ISSUER
+          value: http://localhost:8080
+        - name: IDP_BASE_URL
+          value: http://zitadel.zitadel.svc:8080
+        - name: IDP_HOST_HEADER
+          value: localhost:8080
+        - name: IDP_SECRET_DIR
+          value: /etc/idp-client
+        - name: ACCEPTED_AUDIENCES
+          value: '398230519810097786'
+        - name: DB_POOL_MIN
+          value: '2'
+        - name: PII_KEY_FILE
+          value: /etc/pii/key
+        ports:
+        - name: https
+          containerPort: 8443
+        - name: metrics
+          containerPort: 9100
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+          runAsUser: 10001
+          runAsGroup: 10001
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        volumeMounts:
+        - name: idp-client
+          mountPath: /etc/idp-client
+          readOnly: true
+        - name: tls
+          mountPath: /etc/tls
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        - name: pii
+          mountPath: /etc/pii
+          readOnly: true
+      volumes:
+      - name: idp-client
+        secret:
+          secretName: idp-client
+          defaultMode: 288
+          items:
+          - key: project_id
+            path: project_id
+      - name: tls
+        secret:
+          secretName: commons-grid-backend-tls
+          defaultMode: 288
+      - name: tmp
+        emptyDir: {}
+      - name: pii
+        secret:
+          secretName: pii-hmac
+          defaultMode: 288
+          items:
+          - key: key
+            path: key
+      securityContext:
+        fsGroup: 10001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commons-grid-backend
+  namespace: commons-grid
+spec:
+  type: ClusterIP
+  selector:
+    app: commons-grid-backend
+  ports:
+  - name: https
+    port: 8443
+    targetPort: 8443
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: commons-grid-db-tls
+  namespace: commons-grid
+spec:
+  secretName: commons-grid-db-tls
+  dnsNames:
+  - commons-grid-db
+  - commons-grid-db.commons-grid.svc
+  issuerRef:
+    name: platform-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: commons-grid-db-hba
+  namespace: commons-grid
+data:
+  pg_hba.conf: '# TLS only for network clients; the local socket is for the server
+    itself.
+
+    local   all  all                trust
+
+    hostssl all  all  all          trust
+
+    '
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: commons-grid-db-data
+  namespace: commons-grid
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commons-grid-db
+  namespace: commons-grid
+  labels:
+    app: commons-grid-db
+    app.kubernetes.io/tier: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commons-grid-db
+  template:
+    metadata:
+      labels:
+        app: commons-grid-db
+        app.kubernetes.io/tier: database
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+      initContainers:
+      - name: tls-copy
+        image: postgres:16-alpine@sha256:786dab398303b8ce7cb76b407bb21ef2e4dfbbbd4c6abcf3d29b3130467ffdbc
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        args:
+        - cp /tls/tls.crt /pgtls/server.crt && cp /tls/tls.key /pgtls/server.key &&
+          chmod 600 /pgtls/server.key
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 70
+          runAsGroup: 70
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tls
+          mountPath: /tls
+          readOnly: true
+        - name: pgtls
+          mountPath: /pgtls
+      - name: initdb
+        image: postgres:16-alpine@sha256:786dab398303b8ce7cb76b407bb21ef2e4dfbbbd4c6abcf3d29b3130467ffdbc
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        args:
+        - '[ -s /var/lib/postgresql/data/pgdata/PG_VERSION ] || initdb -D /var/lib/postgresql/data/pgdata
+          -U postgres --auth-local=trust --auth-host=trust'
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 70
+          runAsGroup: 70
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        - name: tmp
+          mountPath: /tmp
+      containers:
+      - name: postgres
+        image: postgres:16-alpine@sha256:786dab398303b8ce7cb76b407bb21ef2e4dfbbbd4c6abcf3d29b3130467ffdbc
+        imagePullPolicy: IfNotPresent
+        args:
+        - -D
+        - /var/lib/postgresql/data/pgdata
+        - -c
+        - ssl=on
+        - -c
+        - ssl_cert_file=/pgtls/server.crt
+        - -c
+        - ssl_key_file=/pgtls/server.key
+        - -c
+        - hba_file=/pgconf/pg_hba.conf
+        ports:
+        - name: postgres
+          containerPort: 5432
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 70
+          runAsGroup: 70
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+        livenessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        - name: pgtls
+          mountPath: /pgtls
+          readOnly: true
+        - name: pgconf
+          mountPath: /pgconf
+          readOnly: true
+        - name: run
+          mountPath: /var/run/postgresql
+        - name: tmp
+          mountPath: /tmp
+        command:
+        - postgres
+      - name: exporter
+        image: quay.io/prometheuscommunity/postgres-exporter@sha256:38606faa38c54787525fb0ff2fd6b41b4cfb75d455c1df294927c5f611699b17
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: DATA_SOURCE_NAME
+          value: postgresql://postgres@/postgres?host=/var/run/postgresql&sslmode=disable
+        ports:
+        - name: metrics
+          containerPort: 9187
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+          runAsUser: 65534
+          runAsGroup: 65534
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 9187
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9187
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: run
+          mountPath: /var/run/postgresql
+      volumes:
+      - name: tls
+        secret:
+          secretName: commons-grid-db-tls
+          defaultMode: 288
+      - name: pgtls
+        emptyDir: {}
+      - name: pgconf
+        configMap:
+          name: commons-grid-db-hba
+      - name: data
+        persistentVolumeClaim:
+          claimName: commons-grid-db-data
+      - name: run
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+  strategy:
+    type: Recreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commons-grid-db
+  namespace: commons-grid
+spec:
+  type: ClusterIP
+  selector:
+    app: commons-grid-db
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+  - name: metrics
+    port: 9187
+    targetPort: 9187
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-ingress
+  namespace: commons-grid
+spec:
+  podSelector:
+    matchLabels:
+      app: commons-grid-db
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: commons-grid-backend
+    ports:
+    - protocol: TCP
+      port: 5432
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9187
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: commons-grid
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: commons-grid
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-ingress
+  namespace: commons-grid
+spec:
+  podSelector:
+    matchLabels:
+      app: commons-grid-dynamics
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: tailscale-system
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: commons-grid-load
+    ports:
+    - protocol: TCP
+      port: 8443
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9113
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-egress
+  namespace: commons-grid
+spec:
+  podSelector:
+    matchLabels:
+      app: commons-grid-dynamics
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: commons-grid-backend
+    ports:
+    - protocol: TCP
+      port: 8443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-ingress
+  namespace: commons-grid
+spec:
+  podSelector:
+    matchLabels:
+      app: commons-grid-backend
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: commons-grid-dynamics
+    ports:
+    - protocol: TCP
+      port: 8443
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9100
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-egress-idp
+  namespace: commons-grid
+spec:
+  podSelector:
+    matchLabels:
+      app: commons-grid-backend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: zitadel
+    ports:
+    - protocol: TCP
+      port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-egress-db
+  namespace: commons-grid
+spec:
+  podSelector:
+    matchLabels:
+      app: commons-grid-backend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: commons-grid-db
+    ports:
+    - protocol: TCP
+      port: 5432
