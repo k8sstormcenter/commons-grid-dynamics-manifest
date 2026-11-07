@@ -1,0 +1,40 @@
+ITERATION 8 — ADR compliance of namespace commons-grid (evaluated 2026-11-06T09:09:18+00:00, window 288s, sensor rows 5008, wire rows 397, use cases seen ['frontend-page', 'load-run', 'load-simulation', 'save-run-with-owner', 'save-simulation'])
+Summary: 5 VIOLATED / 20 COMPLIANT / 0 NOT_OBSERVED over 25 ADRs; pods 3, governed 3, warm 3
+Status: ADR-0001=COMPLIANT, ADR-0002=COMPLIANT, ADR-0003=COMPLIANT, ADR-0004=COMPLIANT, ADR-0005=VIOLATED, ADR-0006=VIOLATED, ADR-0007=COMPLIANT, ADR-0010=COMPLIANT, ADR-0011=COMPLIANT, ADR-0012=COMPLIANT, ADR-0013=COMPLIANT, ADR-0014=COMPLIANT, ADR-0016=COMPLIANT, ADR-0017=COMPLIANT, ADR-0018=COMPLIANT, ADR-0019=COMPLIANT, ADR-0020=VIOLATED, ADR-0021=VIOLATED, ADR-0022=COMPLIANT, ADR-0023=COMPLIANT, ADR-0024=COMPLIANT, ADR-0025=COMPLIANT, ADR-0026=COMPLIANT, ADR-0027=VIOLATED, ADR-0028=COMPLIANT
+
+Counted violations (observed → fix), by ADR:
+  ADR-0005 Every workload is classified and bound
+    - the tier profile does not declare an edge the architecture prescribes, so allowed traffic alerts (platform gap) [platform]  (commons-grid-backend)
+        observed: Unexpected ingress network communication from: 10.42.0.49:8443 using TCP to: api x4862 [edge=['frontend', 'backend'], peer_ip=10.42.0.49, peer_port=8443]
+        fix: platform: declare the inter-tier edge (podSelector app.kubernetes.io/tier) in the tier profile egress/ingress (bobctl)
+  ADR-0006 Run as non-root
+    - the container used a Linux capability, i.e. it starts as root and drops  (commons-grid-db)
+        observed: Unexpected capability used: CAP_SETGID in syscall read with PID 2406062 [capability=CAP_SETGID, process=docker-entrypoi]
+        fix: switch to the rootless/distroless image variant; this is an image choice, not a profile gap
+  ADR-0020 SLSA provenance from the platform builder
+    - provenance present but not verifiable against the platform builder identity and OIDC issuer (build L2)  (commons-grid-backend)
+        observed: provenance=True, provenance_verified=False, container=api, image=ghcr.io/k8sstormcenter/commons-grid-dynamics-backend:3fd9337d74a7a5c7119420b56e13c3645e72343f@sha256:b944
+        fix: build on the platform's hosted workflow; the attestation must be signed by its OIDC identity
+    - no SLSA provenance attestation is attached to the image digest in the registry (build L1)  (commons-grid-db)
+        observed: pinned=True, provenance=False, container=postgres, image=postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139, referrers=[], signatu
+        fix: build with the platform build template (actions/attest-build-provenance or slsa-github-generator pushes the attestation next to the image)
+  ADR-0021 SBOM attached, no known critical vulnerabilities
+    - no SBOM (SPDX/CycloneDX) attached to the image digest  (commons-grid-db)
+        observed: pinned=True, sbom=False, container=postgres, image=postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139, referrers=[]
+        fix: the platform build template attaches the SBOM (syft + cosign attest --type cyclonedx)
+    - the image carries known CRITICAL vulnerabilities  (commons-grid-db)
+        observed: scanned=True, critical=5, container=postgres, critical_relevant=0, high=46, image_tag=docker.io/library/postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a
+        fix: rebuild on a current base image and pinned dependencies; re-scan before pushing
+  ADR-0027 Personal data stays with declared peers
+    - egress to an external address  (commons-grid-db)
+        observed: egress_external=True, remote_kind=external, proto=conn, remote_ip=::, port=65535, count=1
+        fix: default-deny egress with explicit allows
+
+Compliant: ADR-0001 Strict tier layering, ADR-0002 Data tier makes no outbound calls, ADR-0003 Only the backend holds cluster credentials, ADR-0004 Images immutable at runtime, ADR-0007 Detection cannot be switched off by a profile, ADR-0010 Requests authenticated by the platform IdP, ADR-0011 No plaintext on the wire, ADR-0012 Metrics on a dedicated port, ADR-0013 Resources, probes and security context declared, ADR-0014 Images pinned by digest, ADR-0016 No shared or long-lived credentials, ADR-0017 Least-privilege RBAC, ADR-0018 No privilege, no host surface, ADR-0019 Exposure through the platform's tailnet, ADR-0022 No code enters at runtime, ADR-0023 Record of processing declared, ADR-0024 Data minimisation — only declared personal data, ADR-0025 No personal data in logs, metrics or URLs, ADR-0026 Data-subject rights — erasure works, ADR-0028 Pseudonymisation at rest
+
+Component load in the window (from the metrics ports): commons-grid-backend (backend): requests 5640, commands 5218; commons-grid-db (database): requests 54, commits 42662; commons-grid-dynamics (frontend): requests 8079
+Edges with application traffic on the wire: backend->database, backend->ns:zitadel, frontend->backend, ns:commons-grid-load->frontend
+
+Load requirement for the next iteration: EVERY component must carry measurable load in each evaluation window (~1 min of traffic): the frontend ≥ 200 requests, the backend ≥ 200 API requests, the database ≥ 200 commands (writes AND reads through the API: save/load/list runs, persisted simulations). The loadgen must run continuously (deploy-loadgen.yaml, namespace <app>-load) with several virtual users and all use cases every iteration, tagged X-Test-Case. The platform reads the numbers from each component's metrics port and names the under-exercised component.
+
+Traffic: runtime ADRs are judged on traffic. Supply load/k6.js from your functional tests (every request: User-Agent adr-driver/k6, header X-Test-Case: <use case>, via the ingress host); from the next iteration deploy-loadgen.yaml (a k6 Deployment in namespace commons-grid-load). Without it the harness drives the frontend itself.

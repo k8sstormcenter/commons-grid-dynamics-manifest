@@ -108,13 +108,39 @@ def pii_classes(text):
     the class (and as 'canary')."""
     out = {}
     for m in PII_MARKER.finditer(text or ""):
-        out[m.group(1)] = out.get(m.group(1), 0) + 1
+        cls = m.group(1)
+        # dx-ktls redacts at ingest; its ccn matcher also fires on hex resource identifiers (UUIDs). A credit-card
+        # number is digits only, so a ccn marker whose hyphen-adjacent neighbour is a hex group containing a-f is a
+        # UUID fragment, not a card: discount it. Same intent as the Luhn/card-shape rule below, applied to the marker
+        # context the raw value no longer survives to be tested against.
+        if cls == "ccn":
+            left, right = (text or "")[max(0, m.start() - 18):m.start()], (text or "")[m.end():m.end() + 18]
+            if re.match(r"-[0-9a-f]*[a-f][0-9a-f]*", right, re.I) or re.search(r"[0-9a-f]*[a-f][0-9a-f]*-$", left, re.I):
+                continue
+        out[cls] = out.get(cls, 0) + 1
         if m.group(2):
             out["canary"] = out.get("canary", 0) + 1
     for k, rx in PII_CLASSES.items():
-        vals = set(m.group(0) for m in rx.finditer(text or ""))
         if k == "ccn":   # Luhn-valid AND card-shaped (grouped digits) or next to a card-ish field name: bare 13-19 digit numbers are ids/timestamps
-            vals = {v for v in vals if luhn(v) and (re.search(r"^\d{4}[ -]", v) or re.search(r"(card|ccn|pan|credit|cc_?num)[^0-9]{0,24}" + re.escape(v), text or "", re.I))}
+            t = text or ""
+            vals = set()
+            for m in rx.finditer(t):
+                v = m.group(0)
+                if not luhn(v):
+                    continue
+                # a hex letter touching either end means this digit run is a slice of a longer hex token (a UUID in a
+                # URL/log), not a card; a real card is bounded by punctuation/space. (The regex already excludes digit/
+                # hyphen neighbours.)
+                before = t[m.start() - 1] if m.start() > 0 else ""
+                after = t[m.end()] if m.end() < len(t) else ""
+                if re.match(r"[a-fA-F]", before) or re.match(r"[a-fA-F]", after):
+                    continue
+                if re.search(r"^\d{4}[ -]", v) or re.search(r"(card|ccn|pan|credit|cc_?num)[^0-9]{0,24}" + re.escape(v), t, re.I):
+                    vals.add(v)
+            if vals:
+                out[k] = len(vals)
+            continue
+        vals = set(m.group(0) for m in rx.finditer(text or ""))
         if k == "ipv4":
             vals = {v for v in vals if not re.match(r"^(10\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|255\.)", v)}
         if vals:
@@ -773,7 +799,7 @@ class Evidence:
             if not meta:
                 continue
             ip = r["remote_addr"]
-            if ip in ("127.0.0.1", "::1"):
+            if ip in ("127.0.0.1", "::1", "::", "0.0.0.0", ""):   # loopback and unspecified addresses (listen sockets) are not peers
                 continue
             kind, ppod, ptier, pns = self.peer(ip)
             if kind not in ("pod", "ingress"):   # a proxied request keeps the client's User-Agent; the hop is still pod->pod
