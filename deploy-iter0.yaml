@@ -1,4 +1,5 @@
-# Commons Grid Dynamics - same as deploy.yaml with the image pinned to a commit
+# Commons Grid Dynamics - deploy with: kubectl apply -f deploy.yaml
+# then open http://<node-ip>:30080
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -24,7 +25,7 @@ spec:
       containers:
         - name: web
           image: ghcr.io/k8sstormcenter/commons-grid-dynamics:9ab1489587f7030ef70dbc3b67e170e8bd9f027f@sha256:229396b5c08f1dc6044363818c87836f79d7e9f67dfa62fd88136d86413bbcff
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
 ---
@@ -40,3 +41,4 @@ spec:
   ports:
     - port: 80
       targetPort: 80
+      nodePort: 30080
