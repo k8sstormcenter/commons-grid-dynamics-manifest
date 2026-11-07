@@ -114,9 +114,11 @@ ADR without findings — `status`, `counted`, `note`, `owner`, `proof`, `decisio
 
 ## Wire bodies (ADR-0024/0025/0027 — personal data on the wire)
 
-Request/response bodies come from (a) `forensic_db.dx_kubelet_stream` rows with `source='openssl'` (dx-ktls OpenSSL
-mode, when it ships), (b) Pixie `http_events`, (c) the OpenSSL tap `platform/ossl-tap.sh <ns>` — ecapture on the
-frontend pod's libssl, events in `/tap/events.log` of pod `honey/ossl-tap-frontend` (annotation `adr/tap-file`).
-The evaluator classifies bodies itself (email, ipv4 (public only), ccn (Luhn), iban, ssn, phone + its own canary) and
-compares with the `gdpr-processing` ConfigMap. Tap hops also count as wire evidence (encrypted=1, X-Test-Case).
-The tap file holds plaintext bodies and Authorization headers: `platform/ossl-tap.sh --stop` after the window.
+Request/response bodies come from (a) `forensic_db.dx_kubelet_stream` rows with `source='openssl'` — the dx-ktls
+OpenSSL tap, `platform/dx-ktls-openssl.yaml` (DaemonSet `honey/dx-ktls-openssl`: SSL_read/SSL_write uprobes on the
+libssl of every pod in `DX_KTLS_NAMESPACES`, bodies redacted at ingest to `<pii:class[:canary]>` markers, 24 h TTL) —
+and (b) Pixie `http_events` / `pgsql_events` where the PEM parses the protocol. The evaluator counts classes and
+the canary from the markers (dx-ktls rows) or by its own regexes (Pixie rows: email, ipv4 (public only), ccn (Luhn),
+iban, ssn, phone) and compares them with the `gdpr-processing` ConfigMap. No value is persisted or reported.
+Switch the tap off after the evaluation (`kubectl -n honey delete ds dx-ktls-openssl`): it is not part of the soc
+stack yet and produces ~20 M rows a day under load.
