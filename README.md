@@ -7,7 +7,7 @@ The stack used herein is installed by following the TL;DR section in https://git
 
 The additional (PoC) components are under /platform 
 
-Our setup uses an intelligent LLM on the target cluster to act as `flux` or `keptn` AND to relay the MCP's findings to the citizen-coder. This allows the citizen-coder-agent to ask question about the cluster setup, e.g. which `storageClass` is available or `where is the IDP`. 
+Our setup uses an intelligent LLM on the target cluster to act as a deployment controller AND to relay the MCP's findings to the citizen-coder. This allows the citizen-coder-agent to ask question about the cluster setup, e.g. which `storageClass` is available or `where is the IDP`. 
 
 These problems should possibly solved in a more grown-up, enterprise-grade solution and we trust that platform-engineers have their methods.
 
