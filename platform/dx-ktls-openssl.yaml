@@ -15,7 +15,7 @@ spec:
       tolerations: [{operator: Exists}]
       containers:
       - name: dx-ktls
-        image: docker.io/tanzeee/dx-ktls:7c032cc@sha256:aeb4060e88a463845b1f5f64e9a464e6d4603ff3b546d6048819f6001b90dc76   # redacts PII at ingest (<pii:class[:canary]> markers; DX_KTLS_REDACT=0 opts out); 7c032cc: ccn no longer marks '-'-neighboured (UUID) digit runs
+        image: docker.io/tanzeee/dx-ktls:3c018db@sha256:1443188e0685c103270592dee5fc2344aa5e0b0fad0e245e4c06d3bbc6e15c34   # redacts PII at ingest via piiclass (<pii:class[:canary]> markers; DX_KTLS_REDACT=0 opts out); 3c018db: go-llmflow floor + key/form/SQL context, classes email phone ccn iban ssn ipv4 ipv6 dob name address
         securityContext: {privileged: true}
         env:
         - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
