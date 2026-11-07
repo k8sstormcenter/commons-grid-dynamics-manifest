@@ -15,7 +15,7 @@ spec:
       tolerations: [{operator: Exists}]
       containers:
       - name: dx-ktls
-        image: docker.io/tanzeee/dx-ktls:3c018db@sha256:1443188e0685c103270592dee5fc2344aa5e0b0fad0e245e4c06d3bbc6e15c34   # redacts PII at ingest via piiclass (<pii:class[:canary]> markers; DX_KTLS_REDACT=0 opts out); 3c018db: go-llmflow floor + key/form/SQL context, classes email phone ccn iban ssn ipv4 ipv6 dob name address
+        image: docker.io/tanzeee/dx-ktls:48793c6@sha256:4b25a09aba1741a079f215852f0f6610c9d3a0d81c2b88631149a912cdb8ef9c   # redacts PII at ingest via piiclass (<pii:class[:canary]> markers; DX_KTLS_REDACT=0 opts out); 48793c6: go-llmflow floor + phone-in-UUID guard + key/form/SQL context, classes email phone ccn iban ssn ipv4 ipv6 dob name address
         securityContext: {privileged: true}
         env:
         - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
