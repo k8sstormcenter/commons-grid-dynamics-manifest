@@ -57,7 +57,9 @@ PII_CLASSES = {
     "ssn": re.compile(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)"),
     "phone": re.compile(r"(?<![\w])\+\d{1,3}[ .-]?\(?\d{1,4}\)?(?:[ .-]?\d{2,4}){2,4}(?![\w])"),
 }
-PII_FIELD = re.compile(r"(e-?mail|phone|mobile|tel\b|first_?name|last_?name|full_?name|surname|\bname\b|address|street|zip|postcode|birth|dob|ssn|national_?id|passport|iban|card|customer|user_?name|ip_?addr)", re.I)
+# A bare "name" field is a TITLE (a simulation, a run, a file), not a person: the dataplane classifier (dx-ktls
+# piiclass) treats it the same way. Only qualified name fields carry a person, and only those get the canary.
+PII_FIELD = re.compile(r"(e-?mail|phone|mobile|tel\b|first_?name|last_?name|full_?name|surname|owner_?name|display_?name|given_?name|family_?name|contact_?name|customer_?name|address|street|zip|postcode|birth|dob|ssn|national_?id|passport|iban|card|customer|user_?name|ip_?addr)", re.I)
 PII_FIELD_CLASS = [("email", r"e-?mail"), ("phone", r"phone|mobile|tel\b"), ("name", r"name|surname"), ("address", r"address|street|zip|postcode"),
                    ("birthdate", r"birth|dob"), ("government_id", r"ssn|national_?id|passport"), ("payment", r"iban|card"), ("ipv4", r"ip_?addr")]
 
@@ -116,6 +118,16 @@ def pii_classes(text):
         if cls == "ccn":
             left, right = (text or "")[max(0, m.start() - 18):m.start()], (text or "")[m.end():m.end() + 18]
             if re.match(r"-[0-9a-f]*[a-f][0-9a-f]*", right, re.I) or re.search(r"[0-9a-f]*[a-f][0-9a-f]*-$", left, re.I):
+                continue
+        if cls == "phone":
+            # the dataplane's French-plan phone recogniser (0 + 9 digits, '-' separators) can match the head of a
+            # UUID whose first group is all digits and stop inside the second group; a phone marker glued to a
+            # letter/digit or to a '-'-joined hex group is that identifier, not a number (dx-ktls 3c018db, edge4)
+            right = (text or "")[m.end():m.end() + 1]
+            left = (text or "")[max(0, m.start() - 1):m.start()]
+            if re.match(r"[0-9A-Za-z]", right) or re.match(r"[0-9A-Za-z]", left):
+                continue
+            if right == "":   # the marker is the last thing in a row cut at a capture-chunk boundary: unjudgeable, not counted
                 continue
         out[cls] = out.get(cls, 0) + 1
         if m.group(2):
@@ -267,7 +279,7 @@ class Evidence:
                                        "runtime", "wire", "scan", "scan_present", "probe", "content", "metrics",
                                        "attest", "declare", "schema", "pii", "logs", "erasure", "vulns")}
         self.notes = []
-        self.canary = None
+        self.canary, self.canary_rand = None, None
         self.tap_posts = {}
         self._cluster()
         self._exceptions()
@@ -303,7 +315,7 @@ class Evidence:
         ev.events = {k: [] for k in ("pod", "spec", "svc", "ingress", "netpol", "profile", "secret", "rbac",
                                      "runtime", "wire", "scan", "scan_present", "probe", "content", "metrics",
                                      "attest", "declare", "schema", "pii", "logs", "erasure", "vulns")}
-        ev.canary = None
+        ev.canary, ev.canary_rand = None, None
         ev.tap_posts = {}
         ev._cluster(); ev._exceptions(); ev._pods(); ev._network_objects()
         return ev
@@ -1155,7 +1167,7 @@ class Evidence:
 
     def _declared(self, cls):
         d = getattr(self, "declared", set())
-        return cls in d or (cls in ("ipv4",) and "ip" in d) or (cls == "ccn" and "payment" in d) or (cls == "iban" and "payment" in d) or (cls == "ssn" and "government_id" in d)
+        return cls in d or (cls in ("ipv4", "ipv6") and "ip" in d) or (cls == "dob" and "birthdate" in d) or (cls == "ccn" and "payment" in d) or (cls == "iban" and "payment" in d) or (cls == "ssn" and "government_id" in d)
 
     # ---- the API schema the backend publishes: which personal-data fields it accepts
     def _schema(self):
@@ -1252,7 +1264,7 @@ class Evidence:
             direction = r["direction"] if r["direction"] in ("request", "response") else ("request" if server else "response")
             text = r["payload"] or ""
             found = pii_classes(text)
-            if self.canary and self.canary in text:
+            if self.canary_in(text):   # the e-mail form OR the name form ("ADR Canary <rand>") in clear
                 found["canary"] = 1
             in_url = bool(pii_classes(r.get("req_path") or "")) if direction == "request" else False
             for cls, n in found.items():
@@ -1389,7 +1401,7 @@ class Evidence:
                 text = r.stdout or ""
                 found = pii_classes(text)
                 found = {k: v for k, v in found.items() if not (k == "ipv4" and self.canary is None)}   # IPs in access logs are only a finding with a declaration
-                if self.canary and self.canary in text:
+                if self.canary_in(text):
                     found["canary"] = 1
                 base = {"pod": meta["pod"], "workload": meta["workload"], "tier": meta["tier"], "container": c["name"], "lines": text.count("\n")}
                 if not found:
@@ -1397,13 +1409,20 @@ class Evidence:
                 for cls, n in found.items():
                     self.events["logs"].append({**base, "pii_class": cls, "count": n, "clean": False, "declared": self._declared(cls)})
 
+    def canary_in(self, text):
+        """The planted subject in clear: its e-mail form (adr-canary-<rand>@…) or its name form (ADR Canary <rand>).
+        The name form used to go undetected (r22 review finding): a clear-text name column on the database hop passed."""
+        if not self.canary or not text:
+            return False
+        return self.canary in text or f"Canary {self.canary_rand}" in text
+
     # ---- right to erasure: create a synthetic data subject through the API, delete it, check it is gone
     def _erasure(self):
         decl = self.events["declare"][0] if self.events["declare"] else {}
         token, _ = self.idp_token() if not hasattr(self, "_tok") else (self._tok, "")
         self._tok = token
         rand = base64.b32encode(os.urandom(5)).decode().lower().rstrip("=")
-        self.canary = f"adr-canary-{rand}"
+        self.canary, self.canary_rand = f"adr-canary-{rand}", rand
         canary_email = f"{self.canary}@example.invalid"
         for p in self.pods:
             meta = self.pod_meta[p["metadata"]["name"]]
@@ -1436,7 +1455,7 @@ class Evidence:
                 continue
             hdr = {"Content-Type": "application/json", **({"Authorization": f"Bearer {token}"} if token else {})}
             fields = {f for f in getattr(self, "api_fields", [])}
-            body = {"name": f"ADR Canary {rand}", "email": canary_email}
+            body = {"name": "evaluator canary run", "owner_name": f"ADR Canary {rand}", "email": canary_email}   # the person goes in a qualified field; "name" is a title
             if True:   # an observed request body is the best template of what the API accepts; the schema only adds field names
                 if not self.tap_posts:
                     self._tap_rows()
