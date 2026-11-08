@@ -300,7 +300,6 @@ class Evidence:
         self._runtime()
         self._wire()
         self._pii()
-        self._tap_wire()
         if live:
             self._logs()
         self._scan()
@@ -1251,7 +1250,6 @@ class Evidence:
         except Exception as e:
             self.notes.append(f"PII wire evidence unavailable: {e}")
             rows = []
-        rows += self._tap_rows()
         agg = {}
         self.pii_rows = len(rows)
         for r in rows:
@@ -1292,102 +1290,6 @@ class Evidence:
             insp[k] = insp.get(k, 0) + int(r["c"])
         self.events["pii"] = list(agg.values()) + [{"source": s, "db_hop": db, "inspected": n, "pii_class": None, "declared": None,
                                                      "leaves_namespace": False, "in_url": False, "count": 0, "values": 0} for (s, db), n in insp.items()]
-
-
-    # ---- the OpenSSL tap (ecapture `tls` text mode on a pod's libssl): plaintext blocks from its log
-    TAP_HDR = re.compile(r"PID:(\d+) TID:\d+ Comm:(\S+) FD:(\d+) (READ|WRITE) \((\d+) bytes\):")
-    TAP_TUPLE = re.compile(r"PID:(\d+), Comm:(\S*), TID:\d+, FD:(\d+), Tuple: \[([^\]]*)\]:(\d+)->\[([^\]]*)\]:(\d+)")
-
-    def _tap_rows(self):
-        ns, sel = os.environ.get("ADR_TAP_NS", "honey"), os.environ.get("ADR_TAP_SELECTOR", "app=ossl-tap")
-        pods = kget(["-n", ns, "get", "pods", "-l", sel])
-        if not pods:
-            return []
-        since = max(1, int(datetime.datetime.now().timestamp()) - self.since)
-        rows, tuples, state = [], {}, {}
-        t0 = datetime.datetime.fromtimestamp(self.since, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        for tp in pods:
-            tap_file = (tp["metadata"].get("annotations") or {}).get("adr/tap-file")
-            if tap_file:   # the tap writes to a file (container logs rotate at 10 MiB and lose the window); read the window's part
-                r = subprocess.run(["kubectl", "-n", ns, "exec", tp["metadata"]["name"], "--", "sh", "-c",
-                                    f"awk -v t0='[{t0}' '$0 ~ /^\\[20[0-9][0-9]-/ {{ keep = (substr($0,1,20) >= t0) }} keep' {tap_file}"],
-                                   capture_output=True, text=True)
-            else:
-                r = subprocess.run(["kubectl", "-n", ns, "logs", tp["metadata"]["name"], f"--since={since}s"], capture_output=True, text=True)
-            text = re.sub(r"\x1b\[[0-9;]*m", "", r.stdout or "")
-            lines = text.splitlines()
-            i = 0
-            while i < len(lines):
-                m = self.TAP_TUPLE.search(lines[i])
-                if m:
-                    tuples[(m.group(1), m.group(3))] = (m.group(4), int(m.group(5)), m.group(6), int(m.group(7)))
-                    i += 1; continue
-                h = self.TAP_HDR.search(lines[i])
-                if not h:
-                    i += 1; continue
-                pid, comm, fd, op = h.group(1), h.group(2), h.group(3), h.group(4)
-                body = []
-                i += 1
-                while i < len(lines) and not self.TAP_HDR.search(lines[i]) and not self.TAP_TUPLE.search(lines[i]) and "probe=OpenSSL" not in lines[i] and " INF " not in lines[i]:
-                    body.append(lines[i]); i += 1
-                payload = "\n".join(body)
-                if not payload.strip():
-                    continue
-                lip, lport, rip, rport = tuples.get((pid, fd), (None, 0, None, 0))
-                head = payload.lstrip()[:12]
-                if re.match(r"^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) ", head):
-                    kind, path = "request", head.split(" ")[1] if " " in payload.lstrip()[:400] else ""
-                    path = payload.lstrip().split(" ", 2)[1] if " " in payload.lstrip() else ""
-                elif head.startswith("HTTP/"):
-                    kind, path = "response", state.get((pid, fd), ("", ""))[1]
-                else:
-                    kind, path = state.get((pid, fd), ("request" if op == "READ" else "response", ""))
-                state[(pid, fd)] = (kind, path)
-                # which pod and role: the tuple's local side is this pod; a client-role block is nginx talking to the backend
-                me = self.pod_ip.get(lip) or self.pod_ip.get(rip)
-                if not me:
-                    continue
-                local_is_me = self.pod_ip.get(lip) is me
-                remote = rip if local_is_me else lip
-                role = "server" if (local_is_me and lport in (me["http_port"], 8443, 443)) or (not local_is_me) else "client"
-                if local_is_me and lport not in (me["http_port"], 8443, 443):
-                    role = "client"
-                rows.append({"src": "ecapture", "pod": me["pod"], "trace_role": role, "remote_addr": remote,
-                             "local_port": str(lport if local_is_me else rport), "direction": kind, "req_path": path, "payload": payload, "c": 1})
-                if kind == "request" and payload.lstrip().startswith("POST ") and "\n\n" in payload.replace("\r", ""):
-                    b = payload.replace("\r", "").split("\n\n", 1)[1].strip()
-                    if b.startswith("{") and UA not in payload and "adr-canary" not in payload and "adr-tapcheck" not in payload:
-                        self.tap_posts[path.split("?")[0]] = b
-        self.tap_rows_cache = rows
-        return rows
-
-    def _tap_wire(self):
-        """Hops seen by the OpenSSL tap count as wire evidence (encrypted=1), like Pixie rows."""
-        agg = {}
-        for r in getattr(self, "tap_rows_cache", []):
-            if r["direction"] != "request":
-                continue
-            meta = self.pod_meta.get(r["pod"])
-            kind, ppod, ptier, pns = self.peer(r["remote_addr"])
-            server = r["trace_role"] == "server"
-            if kind not in ("pod", "ingress"):
-                if "adr-driver/" in r["payload"]:
-                    kind = "driver"
-                elif UA in r["payload"]:
-                    kind = "evaluator"
-            src_pod, src_tier, dst_pod, dst_tier = (ppod, ptier, r["pod"], meta["tier"]) if server else (r["pod"], meta["tier"], ppod, ptier)
-            method = r["payload"].split(" ", 1)[0]
-            key = (r["pod"], server, r["remote_addr"], r["local_port"], method, r["req_path"].split("?")[0])
-            tc = re.search(r"[Xx]-[Tt]est-[Cc]ase: *([^\r\n]+)", r["payload"])
-            e = agg.setdefault(key, {"proto": "tls", "pod": r["pod"], "workload": meta["workload"], "tier": meta["tier"], "role": "server" if server else "client",
-                                     "src_pod": src_pod, "src_tier": src_tier, "dst_pod": dst_pod, "dst_tier": dst_tier,
-                                     "remote_ip": r["remote_addr"], "remote_kind": kind, "remote_ns": pns, "port": int(r["local_port"] or 0),
-                                     "encrypted": 1, "method": method, "path": r["req_path"].split("?")[0], "status": 0, "count": 0,
-                                     "kubelet_probe": False, "health_path": r["req_path"].split("?")[0] in HEALTH_PATHS,
-                                     "via_ingress": kind == "ingress", "egress_external": (not server) and kind == "external",
-                                     "test_case": tc.group(1).strip().strip("\\r") if tc else "", "exceptions": meta["exceptions"], "edge": [src_tier, dst_tier]})
-            e["count"] += 1
-        self.events["wire"] += list(agg.values())
 
 
     # ---- container logs: personal data (and the canary) written to stdout/stderr
@@ -1457,9 +1359,7 @@ class Evidence:
             fields = {f for f in getattr(self, "api_fields", [])}
             body = {"name": "evaluator canary run", "owner_name": f"ADR Canary {rand}", "email": canary_email}   # the person goes in a qualified field; "name" is a title
             if True:   # an observed request body is the best template of what the API accepts; the schema only adds field names
-                if not self.tap_posts:
-                    self._tap_rows()
-                if not self.tap_posts and CH:   # a recent POST body on this collection from the TLS tap in ClickHouse
+                if not self.tap_posts and CH:   # a recent POST body on this collection from the dx-ktls tap in ClickHouse
                     try:
                         for r in ch_rows(f"""SELECT payload FROM forensic_db.dx_kubelet_stream
                                              WHERE namespace='{self.ns}' AND source='openssl' AND channel='body' AND payload LIKE '{{%'
