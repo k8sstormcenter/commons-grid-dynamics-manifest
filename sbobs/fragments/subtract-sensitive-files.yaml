@@ -1,0 +1,25 @@
+# Subtract: host and user secrets no application reads in normal operation:
+# password and sudo databases, SSH keys, other processes' environments, container
+# runtime sockets. Every tier alerts on them, whatever the base allows.
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ContainerProfile
+metadata:
+  name: subtract-sensitive-files
+  namespace: sbob-library
+  annotations: {kubescape.io/managed-by: User}
+  labels: {kubescape.io/profile-fragment: subtract}
+spec:
+  subtract:
+    opens:
+    - {path: /etc/shadow}
+    - {path: /etc/gshadow}
+    - {path: /etc/sudoers}
+    - {path: /etc/sudoers.d/*}
+    - {path: /etc/ssh/*}
+    - {path: /root/.ssh/*}
+    - {path: /home/*/.ssh/*}
+    - {path: /proc/*/environ}
+    - {path: /var/run/docker.sock}
+    - {path: /run/docker.sock}
+    - {path: /var/run/containerd/containerd.sock}
+    - {path: /run/containerd/containerd.sock}

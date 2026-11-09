@@ -1,0 +1,9 @@
+import px
+
+dsn = 'forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db'
+
+START = '-30m'   # widen (e.g. '-6h') to see several iterations side by side
+
+df = px.DataFrame('adr_findings', clickhouse_dsn=dsn, start_time=START)
+px.display(df[['event_time', 'iteration', 'tool', 'adr_summary', 'status', 'violations', 'counted',
+               'decision_broken', 'observed', 'note', 'proof', 'fix']], 'adr_findings')
